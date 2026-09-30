@@ -1,0 +1,33 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "nest start --watch",
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'no api tests yet'",
+    "db:push": "drizzle-kit push",
+    "seed": "tsx scripts/seed.ts"
+  },
+  "dependencies": {
+    "@marketing/shared": "workspace:*",
+    "@nestjs/common": "^11",
+    "@nestjs/core": "^11",
+    "@nestjs/platform-express": "^11",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.3",
+    "reflect-metadata": "^0.2",
+    "rxjs": "^7",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^20",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  }
+}

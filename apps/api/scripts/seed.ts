@@ -1,4 +1,4 @@
-import { db, schema } from "../src/lib/db";
+import { db, schema } from "../src/db";
 
 const WS = "ws_demo";
 const today = new Date();

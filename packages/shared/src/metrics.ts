@@ -1,4 +1,4 @@
-import type { CampaignMetric } from "@/lib/schemas/campaign";
+import type { CampaignMetric } from "./campaign";
 
 type Counts = Pick<CampaignMetric, "impressions" | "clicks" | "spend" | "conversions" | "revenue">;
 
