@@ -20,7 +20,8 @@ const campaigns = [
   { id: "c_linkedin_b2b", name: "LinkedIn B2B Leads", channel: "linkedin", imp: 8000, ctr: 0.008, cr: 0.03, cpc: 5.5, aov: 200 },
 ] as const;
 
-db.delete(schema.campaignMetrics).run();
+// children first (foreign keys)
+for (const t of [schema.toolCalls, schema.approvals, schema.agentRuns, schema.experiments, schema.campaignAssets, schema.campaignMetrics]) db.delete(t).run();
 db.delete(schema.campaigns).run();
 db.delete(schema.brandProfiles).run();
 db.delete(schema.products).run();

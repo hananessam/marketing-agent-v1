@@ -12,6 +12,9 @@
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.13",
+    "@langchain/langgraph": "^1.4.18",
+    "@langchain/openai": "^1.6.0",
     "@marketing/shared": "workspace:*",
     "@nestjs/common": "^11",
     "@nestjs/core": "^11",
