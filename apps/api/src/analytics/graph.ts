@@ -89,13 +89,21 @@ export function buildAnalyticsGraph(deps: AnalyticsDeps) {
     .compile();
 }
 
-/** Attach deterministic approval requirements; the model's opinion on approval is never used. */
-export function withApproval(report: ModelReport) {
-  return {
-    ...report,
-    recommendations: report.recommendations.map((r) => {
+const SEVERITY_RANK = { high: 0, medium: 1, info: 2 } as const;
+
+/**
+ * Attach deterministic approval requirements (the model's opinion on approval is never used)
+ * and order recommendations by the severity of their campaign's confirmed anomalies.
+ */
+export function withApproval(report: ModelReport, anomalies: Anomaly[] = []) {
+  const rank = (campaignId: string) =>
+    Math.min(3, ...anomalies.filter((a) => a.campaignId === campaignId && !a.lowConfidence).map((a) => SEVERITY_RANK[a.severity]));
+  const recommendations = report.recommendations
+    .map((r, i) => {
       const policyAction = POLICY_ACTION[r.actionType] ?? "delete";
-      return { ...r, policyAction, requiresApproval: decide(policyAction) !== "auto" };
-    }),
-  };
+      return { r: { ...r, policyAction, requiresApproval: decide(policyAction) !== "auto" }, i };
+    })
+    .sort((a, b) => rank(a.r.campaignId) - rank(b.r.campaignId) || a.i - b.i) // stable
+    .map((x) => x.r);
+  return { ...report, recommendations };
 }

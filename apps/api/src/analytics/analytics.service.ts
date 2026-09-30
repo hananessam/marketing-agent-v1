@@ -6,6 +6,12 @@ import { addDays, type CampaignInput } from "./analysis";
 import { buildAnalyticsGraph, withApproval } from "./graph";
 import { RECOMMENDER, type Recommender } from "./recommender";
 
+export type AnalyticsOutput = {
+  periods: { current: { startDate: string; endDate: string }; previous: { startDate: string; endDate: string } };
+  dataQualityIssues: { campaignId: string; type: string; detail: string }[];
+  report: ReturnType<typeof withApproval> | null;
+};
+
 export const RunAnalyticsBody = z.object({
   endDate: z.iso.date().optional(),
   days: z.number().int().min(3).max(30).default(7),
@@ -48,7 +54,7 @@ export class AnalyticsService {
       if (s.report && s.errors.length === 0) {
         const output = {
           periods: s.periods, dataQualityIssues: s.dataQualityIssues, anomalies: s.anomalies, facts: s.facts,
-          report: withApproval(s.report),
+          report: withApproval(s.report, s.anomalies),
         };
         this.runs.finish(workspaceId, runId, "succeeded", output);
         return { runId, status: "succeeded" as const, reused: false, output };

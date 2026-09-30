@@ -95,3 +95,12 @@ export const approvals = sqliteTable("approvals", {
   decidedBy: text("decided_by"), decidedAt: text("decided_at"),
   createdAt: createdAt(),
 });
+
+export const reportSchedules = sqliteTable("report_schedules", {
+  id: id(), workspaceId: workspaceId(),
+  cron: text("cron").notNull(),
+  timezone: text("timezone").notNull().default("UTC"),
+  days: integer("days").notNull(),
+  notify: integer("notify", { mode: "boolean" }).notNull().default(false),
+  createdAt: createdAt(),
+});

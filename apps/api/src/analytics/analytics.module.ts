@@ -7,6 +7,7 @@ import { OpenAIRecommender, RECOMMENDER } from "./recommender";
 @Module({
   imports: [ToolsModule],
   controllers: [AnalyticsController],
+  exports: [AnalyticsService],
   providers: [AnalyticsService, { provide: RECOMMENDER, useClass: OpenAIRecommender }],
 })
 export class AnalyticsModule {}
