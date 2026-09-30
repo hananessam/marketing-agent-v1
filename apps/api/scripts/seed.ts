@@ -21,7 +21,7 @@ const campaigns = [
 ] as const;
 
 // children first (foreign keys)
-for (const t of [schema.toolCalls, schema.approvals, schema.agentRuns, schema.experiments, schema.campaignAssets, schema.campaignMetrics]) db.delete(t).run();
+for (const t of [schema.toolCalls, schema.approvals, schema.agentRuns, schema.experiments, schema.campaignAssets, schema.campaignMetrics, schema.reportSchedules]) db.delete(t).run();
 db.delete(schema.campaigns).run();
 db.delete(schema.brandProfiles).run();
 db.delete(schema.products).run();

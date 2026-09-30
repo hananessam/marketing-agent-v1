@@ -62,6 +62,12 @@ export class ReportsService implements OnModuleInit {
 
   /** Job handler. Throwing makes the queue retry with backoff. */
   async process(data: ReportJobData) {
+    // A scheduler can outlive its row (e.g. deleted while the queue was unreachable): do nothing.
+    if (data.scheduleId && !this.db.select({ id: schema.reportSchedules.id }).from(schema.reportSchedules)
+      .where(eq(schema.reportSchedules.id, data.scheduleId)).get()) {
+      this.log.warn(`Skipping job for deleted schedule ${data.scheduleId}`);
+      return;
+    }
     const res = await this.analytics.run(data.workspaceId, { endDate: data.endDate, days: data.days });
     if (res.status === "running") throw new Error("An identical analysis is still running");
     if (res.status === "failed") {
@@ -111,6 +117,7 @@ export class ReportsService implements OnModuleInit {
   }
 
   listSchedules(workspaceId: string) {
+    this.requireQueue(); // lets the dashboard tell users that schedules cannot run
     return this.db.select().from(schema.reportSchedules).where(eq(schema.reportSchedules.workspaceId, workspaceId)).all();
   }
 
@@ -124,8 +131,16 @@ export class ReportsService implements OnModuleInit {
     return { deleted: id };
   }
 
+  /** The database is the source of truth: register what it has, drop any scheduler it doesn't. */
   async syncSchedules() {
-    for (const s of this.db.select().from(schema.reportSchedules).all()) await this.register(s);
+    const rows = this.db.select().from(schema.reportSchedules).all();
+    for (const s of rows) await this.register(s);
+    const known = new Set(rows.map((r) => r.id));
+    for (const id of await this.queue.listScheduleIds()) {
+      if (known.has(id)) continue;
+      this.log.warn(`Removing orphaned schedule ${id}`);
+      await this.queue.removeSchedule(id);
+    }
   }
 
   private register(s: { id: string; workspaceId: string; cron: string; timezone: string; days: number; notify: boolean }) {

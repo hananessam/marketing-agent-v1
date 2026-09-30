@@ -33,3 +33,7 @@ export type AnalyticsOutput = {
 export type AnalyticsRun = { id: string; status: string; output: AnalyticsOutput; createdAt: string };
 
 export type ToolCall = { id: string; tool: string; args: unknown; result: unknown; status: "ok" | "error" | "blocked"; createdAt: string; runId: string };
+
+export type Schedule = { id: string; cron: string; timezone: string; days: number; notify: boolean; createdAt: string };
+export type EnqueueResult = { jobId: string; deduped: boolean };
+export type JobInfo = { jobId: string; state: string; attemptsMade: number; failedReason?: string };

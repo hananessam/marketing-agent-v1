@@ -19,6 +19,7 @@ class FakeQueue implements JobQueue {
   }
   async upsertSchedule(id: string, cron: string, tz: string, data: ReportJobData) { this.schedules.set(id, { cron, tz, data }); }
   async removeSchedule(id: string) { this.schedules.delete(id); }
+  async listScheduleIds() { return [...this.schedules.keys()]; }
   async jobInfo(id: string) { return this.jobs.has(id) ? { state: "waiting", attemptsMade: 0 } : null; }
 }
 
@@ -90,6 +91,7 @@ describe("enqueue", () => {
     queue.enabled = false;
     await expect(svc.enqueue("w", { days: 7, notify: false })).rejects.toThrow(/REDIS_URL/);
     await expect(svc.createSchedule("w", body)).rejects.toThrow(/REDIS_URL/);
+    expect(() => svc.listSchedules("w")).toThrow(/REDIS_URL/);
   });
 });
 
@@ -103,6 +105,18 @@ describe("schedules", () => {
     await svc.onModuleInit();
     expect(queue.schedules.size).toBe(1);
     expect(queue.handler).toBeDefined();
+  });
+
+  it("removes orphaned schedulers on boot and skips jobs for deleted schedules", async () => {
+    const kept = (await svc.createSchedule("w", body))!;
+    queue.schedules.set("ghost", { cron: "0 8 * * 1", tz: "UTC", data: { workspaceId: "w", days: 7, notify: false, scheduleId: "ghost" } });
+    await svc.onModuleInit();
+    expect([...queue.schedules.keys()]).toEqual([kept.id]);
+
+    await svc.process({ workspaceId: "w", days: 7, notify: true, scheduleId: "ghost" });
+    expect(run).not.toHaveBeenCalled();
+    await svc.process({ workspaceId: "w", days: 7, notify: true, scheduleId: kept.id });
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it("rejects bad cron, bad timezone and schedules more frequent than hourly", async () => {

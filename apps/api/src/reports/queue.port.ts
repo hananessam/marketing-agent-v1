@@ -17,6 +17,8 @@ export interface JobQueue {
   enqueue(data: ReportJobData, jobId: string): Promise<{ jobId: string; deduped: boolean }>;
   upsertSchedule(scheduleId: string, cron: string, timezone: string, data: ReportJobData): Promise<void>;
   removeSchedule(scheduleId: string): Promise<void>;
+  /** Ids (as passed to upsertSchedule) of every schedule currently registered in the backend. */
+  listScheduleIds(): Promise<string[]>;
   jobInfo(jobId: string): Promise<JobInfo | null>;
 }
 export const JOB_QUEUE = Symbol("JOB_QUEUE");

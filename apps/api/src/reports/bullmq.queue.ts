@@ -5,6 +5,7 @@ import type { JobInfo, JobQueue, ReportJobData } from "./queue.port";
 
 const QUEUE_NAME = "analytics-reports";
 const JOB_NAME = "analytics-report";
+const SCHEDULE_PREFIX = "schedule_";
 
 export class BullMqQueue implements JobQueue, OnModuleDestroy {
   private readonly log = new Logger("BullMqQueue");
@@ -51,11 +52,16 @@ export class BullMqQueue implements JobQueue, OnModuleDestroy {
 
   async upsertSchedule(scheduleId: string, cron: string, timezone: string, data: ReportJobData) {
     // Deterministic scheduler id: re-registering on every boot never duplicates the schedule.
-    await this.requireQueue().upsertJobScheduler(`schedule_${scheduleId}`, { pattern: cron, tz: timezone }, { name: JOB_NAME, data });
+    await this.requireQueue().upsertJobScheduler(`${SCHEDULE_PREFIX}${scheduleId}`, { pattern: cron, tz: timezone }, { name: JOB_NAME, data });
   }
 
   async removeSchedule(scheduleId: string) {
-    await this.requireQueue().removeJobScheduler(`schedule_${scheduleId}`);
+    await this.requireQueue().removeJobScheduler(`${SCHEDULE_PREFIX}${scheduleId}`);
+  }
+
+  async listScheduleIds() {
+    const schedulers = await this.requireQueue().getJobSchedulers(0, -1);
+    return schedulers.map((s) => s.key).filter((k) => k.startsWith(SCHEDULE_PREFIX)).map((k) => k.slice(SCHEDULE_PREFIX.length));
   }
 
   async jobInfo(jobId: string): Promise<JobInfo | null> {
