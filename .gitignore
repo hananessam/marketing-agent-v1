@@ -46,3 +46,4 @@ dist
 
 node_modules
 .vite
+!.env.example
