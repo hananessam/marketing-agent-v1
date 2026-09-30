@@ -4,7 +4,7 @@
     "declaration": false, "removeComments": true,
     "emitDecoratorMetadata": true, "experimentalDecorators": true,
     "strict": true, "esModuleInterop": true, "skipLibCheck": true,
-    "outDir": "./dist", "rootDir": ".", "incremental": true
+    "outDir": "./dist", "rootDir": "."
   },
   "include": ["src", "scripts", "drizzle.config.ts"]
 }
