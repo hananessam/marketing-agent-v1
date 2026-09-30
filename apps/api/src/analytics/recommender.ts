@@ -27,7 +27,7 @@ Rules:
 - Order by impact: address the highest-severity, non-lowConfidence anomaly first. Anomalies in the facts are pre-computed and ranked; build on them rather than re-deriving.
 - Use "investigate_tracking" only for data-quality problems, never for "keep monitoring". For an efficient_spend_increase anomaly, consider a small, reversible "reallocate_budget" test.
 - You only propose actions. You cannot publish, send, pause, or change budgets; a human approves those.
-- Percentages in the facts are ratios (0.03 = 3%).`;
+- Percentages in the facts are ratios (0.03 = 3%). In prose, round and write rates as percentages (e.g. 2.0%), money with 2 decimals; evidence values stay exact.`;
 
 export class OpenAIRecommender implements Recommender {
   constructor(private readonly modelName = process.env.OPENAI_MODEL ?? "gpt-4.1-mini") {}
