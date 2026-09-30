@@ -18,11 +18,11 @@ const METRIC_KEYS = ["impressions", "clicks", "spend", "conversions", "revenue"]
 
 export const getBrandGuidelines = defineTool({
   name: "get_brand_guidelines",
-  description: "Brand voice, approved claims and prohibited content for the workspace.",
+  description: "Brand voice, approved claims, prohibited content and allowed link domains for the workspace.",
   readOnly: true,
   parameters: z.object({}),
   execute: ({ db, workspaceId }) =>
-    db.select({ voice: schema.brandProfiles.voice, approvedClaims: schema.brandProfiles.approvedClaims, prohibited: schema.brandProfiles.prohibited })
+    db.select({ voice: schema.brandProfiles.voice, approvedClaims: schema.brandProfiles.approvedClaims, prohibited: schema.brandProfiles.prohibited, allowedDomains: schema.brandProfiles.allowedDomains })
       .from(schema.brandProfiles).where(eq(schema.brandProfiles.workspaceId, workspaceId)).get() ?? null,
 });
 

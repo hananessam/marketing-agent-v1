@@ -33,7 +33,8 @@ db.insert(schema.brandProfiles).values({
   id: "bp_1", workspaceId: WS,
   voice: "Friendly, concise, practical. No hype.",
   approvedClaims: ["Free 30-day trial", "Set up in under 10 minutes"],
-  prohibited: ["guaranteed results", "#1 in the world", "fake urgency or testimonials"],
+  prohibited: ["guaranteed results", "#1 in the world", "fake urgency", "testimonial"],
+  allowedDomains: ["acme-planner.example"],
 }).run();
 db.insert(schema.products).values({ id: "p_1", workspaceId: WS, name: "Acme Planner", description: "Project planning SaaS for small teams." }).run();
 db.insert(schema.audiences).values([

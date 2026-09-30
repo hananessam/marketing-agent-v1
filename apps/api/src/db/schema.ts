@@ -11,6 +11,7 @@ export const brandProfiles = sqliteTable("brand_profiles", {
   voice: text("voice").notNull(),
   approvedClaims: text("approved_claims", { mode: "json" }).$type<string[]>().notNull(),
   prohibited: text("prohibited", { mode: "json" }).$type<string[]>().notNull(),
+  allowedDomains: text("allowed_domains", { mode: "json" }).$type<string[]>().notNull().default([]),
 });
 
 export const products = sqliteTable("products", {
