@@ -20,6 +20,12 @@ export class RunsService {
       .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.workspaceId, workspaceId))).run();
   }
 
+  /** Free the idempotency key (used as a lock that must not outlive the work). */
+  releaseKey(workspaceId: string, runId: string) {
+    this.db.update(schema.agentRuns).set({ idempotencyKey: null })
+      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.workspaceId, workspaceId))).run();
+  }
+
   findByKey(workspaceId: string, idempotencyKey: string) {
     return this.db.select().from(schema.agentRuns)
       .where(and(eq(schema.agentRuns.workspaceId, workspaceId), eq(schema.agentRuns.idempotencyKey, idempotencyKey))).get();

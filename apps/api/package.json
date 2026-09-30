@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:push": "drizzle-kit push",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "connect": "tsx scripts/connect.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.13",

@@ -21,7 +21,7 @@ const campaigns = [
 ] as const;
 
 // children first (foreign keys)
-for (const t of [schema.toolCalls, schema.approvals, schema.agentRuns, schema.experiments, schema.campaignAssets, schema.campaignMetrics, schema.reportSchedules]) db.delete(t).run();
+for (const t of [schema.toolCalls, schema.approvals, schema.agentRuns, schema.experiments, schema.campaignAssets, schema.campaignMetrics, schema.reportSchedules, schema.connections]) db.delete(t).run();
 db.delete(schema.campaigns).run();
 db.delete(schema.brandProfiles).run();
 db.delete(schema.products).run();
@@ -44,7 +44,7 @@ db.insert(schema.audiences).values([
 
 const rows: (typeof schema.campaignMetrics.$inferInsert)[] = [];
 for (const c of campaigns) {
-  db.insert(schema.campaigns).values({ id: c.id, workspaceId: WS, name: c.name, channel: c.channel, status: "active" }).run();
+  db.insert(schema.campaigns).values({ id: c.id, workspaceId: WS, name: c.name, channel: c.channel, status: "active", source: "seed" }).run();
   // 14 days: days 13..7 = previous period, 6..0 = current period. Yesterday (1) is most recent complete day.
   for (let off = 14; off >= 1; off--) {
     const impressions = jitter(c.imp);

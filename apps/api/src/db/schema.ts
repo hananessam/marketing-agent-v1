@@ -27,6 +27,8 @@ export const campaigns = sqliteTable("campaigns", {
   name: text("name").notNull(),
   channel: text("channel").notNull(),
   status: text("status", { enum: ["draft", "approved", "active", "paused"] }).notNull(),
+  /** Where the campaign came from: manual/agent drafts, demo seed, or a connector. */
+  source: text("source", { enum: ["manual", "seed", "meta_ads", "ga4"] }).notNull().default("manual"),
   brief: text("brief", { mode: "json" }),
   plan: text("plan", { mode: "json" }),
   createdAt: createdAt(),
@@ -104,3 +106,18 @@ export const reportSchedules = sqliteTable("report_schedules", {
   notify: integer("notify", { mode: "boolean" }).notNull().default(false),
   createdAt: createdAt(),
 });
+
+export const connections = sqliteTable("connections", {
+  id: id(), workspaceId: workspaceId(),
+  provider: text("provider", { enum: ["meta_ads", "ga4"] }).notNull(),
+  /** Non-secret account identifier (Meta ad account id / GA4 property id). */
+  accountId: text("account_id").notNull(),
+  /** AES-256-GCM blob (base64) holding tokens / service-account key. Never returned by the API. */
+  encryptedSecret: text("encrypted_secret").notNull(),
+  config: text("config", { mode: "json" }).$type<Record<string, string>>().notNull().default({}),
+  status: text("status", { enum: ["ok", "needs_reauth", "error", "never_synced"] }).notNull().default("never_synced"),
+  lastSyncAt: text("last_sync_at"),
+  lastError: text("last_error"),
+  lastSummary: text("last_summary", { mode: "json" }),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("connections_uniq").on(t.workspaceId, t.provider, t.accountId)]);
