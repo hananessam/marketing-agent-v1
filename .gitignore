@@ -43,3 +43,6 @@ local.db*
 .next
 dist
 *.tsbuildinfo
+
+node_modules
+.vite
