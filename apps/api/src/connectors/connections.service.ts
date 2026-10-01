@@ -10,8 +10,10 @@ export class ConnectionsService {
   /** Never includes encryptedSecret. */
   list(workspaceId: string) {
     const c = schema.connections;
-    return this.db.select({ id: c.id, provider: c.provider, accountId: c.accountId, status: c.status, lastSyncAt: c.lastSyncAt, lastError: c.lastError, lastSummary: c.lastSummary, createdAt: c.createdAt })
-      .from(c).where(eq(c.workspaceId, workspaceId)).all();
+    return this.db.select({ id: c.id, provider: c.provider, accountId: c.accountId, config: c.config, status: c.status, lastSyncAt: c.lastSyncAt, lastError: c.lastError, lastSummary: c.lastSummary, createdAt: c.createdAt })
+      .from(c).where(eq(c.workspaceId, workspaceId)).all()
+      // config is a bag of non-secret settings; expose only what the dashboard shows.
+      .map(({ config, ...rest }) => ({ ...rest, accountName: config.accountName ?? null, tokenExpiresAt: config.expiresAt ?? null, conversionAction: config.conversionAction ?? null }));
   }
 
   /** Forgets the stored credentials. Already-synced metrics are kept. */

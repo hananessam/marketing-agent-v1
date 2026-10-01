@@ -112,12 +112,24 @@ export const connections = sqliteTable("connections", {
   provider: text("provider", { enum: ["meta_ads", "ga4"] }).notNull(),
   /** Non-secret account identifier (Meta ad account id / GA4 property id). */
   accountId: text("account_id").notNull(),
-  /** AES-256-GCM blob (base64) holding tokens / service-account key. Never returned by the API. */
+  /** AES-256-GCM blob (base64) holding OAuth tokens. Never returned by the API. */
   encryptedSecret: text("encrypted_secret").notNull(),
   config: text("config", { mode: "json" }).$type<Record<string, string>>().notNull().default({}),
-  status: text("status", { enum: ["ok", "needs_reauth", "error", "never_synced"] }).notNull().default("never_synced"),
+  status: text("status", { enum: ["ok", "needs_reauth", "error", "never_synced", "pending_account"] }).notNull().default("never_synced"),
   lastSyncAt: text("last_sync_at"),
   lastError: text("last_error"),
   lastSummary: text("last_summary", { mode: "json" }),
   createdAt: createdAt(),
 }, (t) => [uniqueIndex("connections_uniq").on(t.workspaceId, t.provider, t.accountId)]);
+
+/** One row per in-flight OAuth consent. Single-use: deleted when the callback consumes it. */
+export const oauthStates = sqliteTable("oauth_states", {
+  state: text("state").primaryKey(),
+  workspaceId: workspaceId(),
+  provider: text("provider", { enum: ["meta_ads", "ga4"] }).notNull(),
+  /** Set when re-authorizing an existing connection. */
+  connectionId: text("connection_id"),
+  codeVerifier: text("code_verifier"),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: createdAt(),
+});

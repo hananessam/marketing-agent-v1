@@ -7,7 +7,7 @@ import { SyncService } from "./sync.service";
 
 const SyncBody = z.object({ days: z.number().int().min(1).max(90).default(7) });
 
-// Credentials are deliberately NOT accepted over HTTP: they are added with `pnpm connect` from environment variables.
+// Credentials are never accepted over HTTP: accounts are linked through the OAuth flow in ../oauth.
 @Controller("connections")
 @UseGuards(WorkspaceGuard)
 export class ConnectionsController {
@@ -21,6 +21,12 @@ export class ConnectionsController {
   @Post(":id/sync")
   run(@WorkspaceId() ws: string, @Param("id") id: string, @Body(new ZodValidationPipe(SyncBody)) body: z.infer<typeof SyncBody>) {
     return this.sync.sync(ws, id, { days: body.days });
+  }
+
+  /** Removes demo-seed campaigns and their metrics (never connector or manual data). */
+  @Post("demo-data/purge")
+  purgeDemo(@WorkspaceId() ws: string) {
+    return { removed: this.sync.purgeSeedData(ws) };
   }
 
   @Delete(":id")

@@ -111,7 +111,7 @@ export class CampaignsService {
   // ---------- reading ----------
 
   list(workspaceId: string) {
-    return this.db.select({ id: schema.campaigns.id, name: schema.campaigns.name, channel: schema.campaigns.channel, status: schema.campaigns.status, createdAt: schema.campaigns.createdAt })
+    return this.db.select({ id: schema.campaigns.id, name: schema.campaigns.name, channel: schema.campaigns.channel, status: schema.campaigns.status, source: schema.campaigns.source, createdAt: schema.campaigns.createdAt })
       .from(schema.campaigns).where(eq(schema.campaigns.workspaceId, workspaceId)).orderBy(desc(schema.campaigns.createdAt)).all();
   }
 

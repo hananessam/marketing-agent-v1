@@ -1,15 +1,10 @@
-import { createSign } from "node:crypto";
+import { googleAccessToken, type GoogleClient } from "./google-auth";
 import { ConnectorAuthError, ConnectorError, requestJson, type HttpResult } from "./http";
 import type { CampaignInfo, Channel, Connector, ConnectorResult, DateRange, MetricRow } from "./types";
 
-const SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const PAGE = 10_000;
 
-export type Ga4Credentials = {
-  propertyId: string;
-  serviceAccount: { client_email: string; private_key: string };
-};
+export type Ga4Credentials = { propertyId: string; refreshToken: string } & GoogleClient;
 
 export type Ga4Row = { dimensionValues: { value: string }[]; metricValues: { value: string }[] };
 export type Ga4Response = { rows?: Ga4Row[]; rowCount?: number };
@@ -62,22 +57,12 @@ export function normalizeGa4(rows: Ga4Row[]): ConnectorResult {
   return { campaigns: [...campaigns.values()], rows: [...acc.values()], skipped };
 }
 
-const b64url = (b: Buffer | string) => Buffer.from(b).toString("base64url");
-
-/** Service-account JWT bearer grant, implemented directly to avoid pulling in a large SDK. */
-export function signServiceAccountJwt(sa: Ga4Credentials["serviceAccount"], now = Math.floor(Date.now() / 1000)): string {
-  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claims = b64url(JSON.stringify({ iss: sa.client_email, scope: SCOPE, aud: TOKEN_URL, iat: now, exp: now + 3600 }));
-  const sig = createSign("RSA-SHA256").update(`${header}.${claims}`).sign(sa.private_key);
-  return `${header}.${claims}.${b64url(sig)}`;
-}
-
 export class Ga4Connector implements Connector {
   readonly provider = "ga4" as const;
   constructor(private readonly creds: Ga4Credentials, private readonly fetchFn: typeof fetch = fetch, private readonly sleep?: (ms: number) => Promise<void>) {}
 
   async fetch(range: DateRange): Promise<ConnectorResult> {
-    const token = await this.accessToken();
+    const token = await googleAccessToken(this.creds, this.creds.refreshToken, this.fetchFn, this.sleep);
     const property = this.creds.propertyId.replace(/^properties\//, "");
     if (!/^\d+$/.test(property)) throw new Error("GA4 property id must be numeric");
 
@@ -101,19 +86,10 @@ export class Ga4Connector implements Connector {
     return normalizeGa4(rows);
   }
 
-  private async accessToken(): Promise<string> {
-    const body = new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: signServiceAccountJwt(this.creds.serviceAccount) });
-    const res = await requestJson(TOKEN_URL, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body }, { fetchFn: this.fetchFn, sleep: this.sleep });
-    if (!res.ok || !res.json?.access_token) {
-      throw new ConnectorAuthError(`Google token request failed: ${res.json?.error_description ?? res.json?.error ?? `HTTP ${res.status}`}`);
-    }
-    return res.json.access_token as string;
-  }
-
   private assertOk(res: HttpResult) {
     if (res.ok) return;
     const msg = `GA4 API error: ${res.json?.error?.message ?? `HTTP ${res.status}`}`;
-    if (res.status === 401 || res.status === 403) throw new ConnectorAuthError(`${msg} (is the service account a Viewer on the property?)`);
+    if (res.status === 401 || res.status === 403) throw new ConnectorAuthError(`${msg} (does this Google account have access to the GA4 property?)`);
     throw new ConnectorError(msg, res.status);
   }
 }

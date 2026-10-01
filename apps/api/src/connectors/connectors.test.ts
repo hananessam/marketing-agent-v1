@@ -1,7 +1,7 @@
-import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { decryptSecret, encryptSecret } from "./crypto";
-import { channelFor, Ga4Connector, normalizeGa4, signServiceAccountJwt } from "./ga4";
+import { channelFor, Ga4Connector, normalizeGa4 } from "./ga4";
 import { ConnectorAuthError, ConnectorError, requestJson } from "./http";
 import { MetaConnector, normalizeAdAccountId, normalizeMeta } from "./meta";
 
@@ -134,17 +134,9 @@ describe("GA4", () => {
     expect(n.skipped).toEqual({ no_campaign: 1, unmapped_source_medium: 1, invalid_row: 1 });
   });
 
-  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
-  const creds = { propertyId: "properties/42", serviceAccount: { client_email: "sa@proj.iam.gserviceaccount.com", private_key: privateKey } };
+  const creds = { propertyId: "properties/42", refreshToken: "RT", clientId: "cid", clientSecret: "csecret" };
 
-  it("signs a valid RS256 service-account JWT", () => {
-    const [h, c, s] = signServiceAccountJwt(creds.serviceAccount, 1000).split(".");
-    expect(JSON.parse(Buffer.from(h, "base64url").toString())).toEqual({ alg: "RS256", typ: "JWT" });
-    expect(JSON.parse(Buffer.from(c, "base64url").toString())).toMatchObject({ iss: "sa@proj.iam.gserviceaccount.com", scope: "https://www.googleapis.com/auth/analytics.readonly", exp: 4600 });
-    expect(s.length).toBeGreaterThan(100);
-  });
-
-  it("gets a token, pages through runReport with offset, and sends the right report", async () => {
+  it("refreshes an access token from the stored refresh token, pages through runReport, and sends the right report", async () => {
     const page = (n: number, start: number) => Array.from({ length: n }, (_, i) => ({ dimensionValues: dims("20260310", `C${start + i}`, "google", "cpc"), metricValues: mets(1, 0, 0) }));
     const f = vi.fn()
       .mockResolvedValueOnce(res(200, { access_token: "AT" }))
@@ -152,7 +144,10 @@ describe("GA4", () => {
       .mockResolvedValueOnce(res(200, { rows: page(5, 10_000), rowCount: 10_005 }));
     const out = await new Ga4Connector(creds, f as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" });
     expect(out.campaigns).toHaveLength(10_005);
-    expect(f.mock.calls[0][0]).toBe("https://oauth2.googleapis.com/token");
+    const [tokenUrl, tokenInit] = f.mock.calls[0];
+    expect(tokenUrl).toBe("https://oauth2.googleapis.com/token");
+    const form = new URLSearchParams((tokenInit as RequestInit).body as URLSearchParams);
+    expect(Object.fromEntries(form)).toEqual({ grant_type: "refresh_token", refresh_token: "RT", client_id: "cid", client_secret: "csecret" });
     const [url, init] = f.mock.calls[1];
     expect(url).toBe("https://analyticsdata.googleapis.com/v1beta/properties/42:runReport");
     expect((init as RequestInit).headers).toMatchObject({ authorization: "Bearer AT" });
@@ -161,11 +156,15 @@ describe("GA4", () => {
     expect(JSON.parse((f.mock.calls[2][1] as RequestInit).body as string).offset).toBe(10_000);
   });
 
-  it("maps token/permission failures to auth errors", async () => {
-    const badToken = vi.fn().mockResolvedValue(res(400, { error: "invalid_grant", error_description: "Invalid JWT Signature." }));
-    await expect(new Ga4Connector(creds, badToken as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" })).rejects.toBeInstanceOf(ConnectorAuthError);
+  it("treats a revoked/expired grant as needs-reauth and a 403 as a permissions problem", async () => {
+    const revoked = vi.fn().mockResolvedValue(res(400, { error: "invalid_grant", error_description: "Token has been expired or revoked." }));
+    await expect(new Ga4Connector(creds, revoked as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" })).rejects.toBeInstanceOf(ConnectorAuthError);
+    const badClient = vi.fn().mockResolvedValue(res(401, { error: "invalid_client" }));
+    const err = await new Ga4Connector(creds, badClient as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" }).catch((e) => e);
+    expect(err).toBeInstanceOf(ConnectorError);
+    expect(err).not.toBeInstanceOf(ConnectorAuthError); // our config problem, not the user's
     const noAccess = vi.fn().mockResolvedValueOnce(res(200, { access_token: "AT" })).mockResolvedValueOnce(res(403, { error: { message: "User does not have sufficient permissions" } }));
-    await expect(new Ga4Connector(creds, noAccess as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" })).rejects.toThrow(/Viewer/);
+    await expect(new Ga4Connector(creds, noAccess as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" })).rejects.toBeInstanceOf(ConnectorAuthError);
     await expect(new Ga4Connector({ ...creds, propertyId: "42/../x" }, vi.fn().mockResolvedValue(res(200, { access_token: "AT" })) as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" })).rejects.toThrow(/numeric/);
   });
 });

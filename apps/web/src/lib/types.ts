@@ -1,6 +1,6 @@
 export type Metric = "impressions" | "clicks" | "spend" | "conversions" | "revenue" | "ctr" | "conversionRate" | "cpc" | "cpa" | "roas";
 
-export type Campaign = { id: string; name: string; channel: string; status: "draft" | "approved" | "active" | "paused"; createdAt: string };
+export type Campaign = { id: string; name: string; channel: string; status: "draft" | "approved" | "active" | "paused"; source: "manual" | "seed" | "meta_ads" | "ga4"; createdAt: string };
 export type Asset = { id: string; kind: string; variant: string; content: string; status: "draft" | "approved" | "rejected" };
 export type CampaignDetail = Campaign & {
   brief: { objective: string; product: string; audience: string; channels: string[]; durationDays: number; budget?: number; constraints: string[] };
@@ -37,3 +37,18 @@ export type ToolCall = { id: string; tool: string; args: unknown; result: unknow
 export type Schedule = { id: string; cron: string; timezone: string; days: number; notify: boolean; createdAt: string };
 export type EnqueueResult = { jobId: string; deduped: boolean };
 export type JobInfo = { jobId: string; state: string; attemptsMade: number; failedReason?: string };
+
+export type Provider = "ga4" | "meta_ads";
+export type Connection = {
+  id: string; provider: Provider; accountId: string; accountName: string | null;
+  status: "ok" | "needs_reauth" | "error" | "never_synced" | "pending_account";
+  tokenExpiresAt: string | null; conversionAction: string | null;
+  lastSyncAt: string | null; lastError: string | null;
+  lastSummary: { campaigns: number; rows: number; range: { startDate: string; endDate: string }; skipped: Record<string, number> } | null;
+  createdAt: string;
+};
+export type OAuthStatus = Record<"google" | "meta", { configured: boolean }>;
+export type Account = { id: string; name: string };
+export type SyncOutcome =
+  | { status: "succeeded"; runId: string; summary: NonNullable<Connection["lastSummary"]> }
+  | { status: "failed"; runId: string; error: string; needsReauth: boolean };
