@@ -50,14 +50,17 @@ export class ReportsService implements OnModuleInit {
     private readonly analytics: AnalyticsService,
   ) {}
 
-  async onModuleInit() {
+  /** Settles when the boot-time schedule sync has finished (tests await it). */
+  scheduleSync: Promise<void> = Promise.resolve();
+
+  onModuleInit() {
     if (!this.queue.enabled) return;
     this.queue.start((data) => this.process(data));
-    try {
-      await this.syncSchedules();
-    } catch (e) {
+    // Deliberately not awaited: if Redis is down the API must still start and serve requests;
+    // the Redis client keeps retrying and this completes once it is reachable.
+    this.scheduleSync = this.syncSchedules().catch((e) => {
       this.log.error(`Could not sync schedules: ${e instanceof Error ? e.message : e}`);
-    }
+    });
   }
 
   /** Job handler. Throwing makes the queue retry with backoff. */

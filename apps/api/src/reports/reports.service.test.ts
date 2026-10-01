@@ -100,9 +100,9 @@ describe("schedules", () => {
     const s = await svc.createSchedule("w", body);
     expect(queue.schedules.get(s!.id)).toMatchObject({ cron: "0 8 * * 1", tz: "UTC", data: { workspaceId: "w", days: 7, notify: true } });
     queue.schedules.clear();
-    await svc.onModuleInit();
+    svc.onModuleInit(); await svc.scheduleSync;
     expect(queue.schedules.size).toBe(1);
-    await svc.onModuleInit();
+    svc.onModuleInit(); await svc.scheduleSync;
     expect(queue.schedules.size).toBe(1);
     expect(queue.handler).toBeDefined();
   });
@@ -110,7 +110,7 @@ describe("schedules", () => {
   it("removes orphaned schedulers on boot and skips jobs for deleted schedules", async () => {
     const kept = (await svc.createSchedule("w", body))!;
     queue.schedules.set("ghost", { cron: "0 8 * * 1", tz: "UTC", data: { workspaceId: "w", days: 7, notify: false, scheduleId: "ghost" } });
-    await svc.onModuleInit();
+    svc.onModuleInit(); await svc.scheduleSync;
     expect([...queue.schedules.keys()]).toEqual([kept.id]);
 
     await svc.process({ workspaceId: "w", days: 7, notify: true, scheduleId: "ghost" });

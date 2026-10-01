@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/.next
+**/dist
+**/*.tsbuildinfo
+**/.vite
+**/*.db
+**/*.db-*
+# never bake secrets into an image
+.env*
+**/.env*
+!.env.example
