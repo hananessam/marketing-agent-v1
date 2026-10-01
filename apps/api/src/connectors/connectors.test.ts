@@ -165,6 +165,8 @@ describe("GA4", () => {
     expect(err).not.toBeInstanceOf(ConnectorAuthError); // our config problem, not the user's
     const noAccess = vi.fn().mockResolvedValueOnce(res(200, { access_token: "AT" })).mockResolvedValueOnce(res(403, { error: { message: "User does not have sufficient permissions" } }));
     await expect(new Ga4Connector(creds, noAccess as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" })).rejects.toBeInstanceOf(ConnectorAuthError);
+    const denied = vi.fn().mockResolvedValueOnce(res(200, { access_token: "AT" })).mockResolvedValueOnce(res(400, { error: { message: "This property is denied access to the API. Contact Google Analytics API Support for more information." } }));
+    await expect(new Ga4Connector(creds, denied as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" })).rejects.toThrow(/Choose a property you own|choose a property you own/);
     await expect(new Ga4Connector({ ...creds, propertyId: "42/../x" }, vi.fn().mockResolvedValue(res(200, { access_token: "AT" })) as never, noSleep).fetch({ startDate: "2026-03-10", endDate: "2026-03-10" })).rejects.toThrow(/numeric/);
   });
 });

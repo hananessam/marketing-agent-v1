@@ -88,7 +88,10 @@ export class Ga4Connector implements Connector {
 
   private assertOk(res: HttpResult) {
     if (res.ok) return;
-    const msg = `GA4 API error: ${res.json?.error?.message ?? `HTTP ${res.status}`}`;
+    const raw = res.json?.error?.message ?? `HTTP ${res.status}`;
+    // Google blocks API access to some properties, notably its public demo property.
+    const hint = /denied access to the API/i.test(raw) ? " This property does not allow API access (Google's public demo property is one). Disconnect it and choose a property you own." : "";
+    const msg = `GA4 API error: ${raw}${hint}`;
     if (res.status === 401 || res.status === 403) throw new ConnectorAuthError(`${msg} (does this Google account have access to the GA4 property?)`);
     throw new ConnectorError(msg, res.status);
   }
