@@ -1,17 +1,16 @@
 import { Logger, type OnModuleDestroy } from "@nestjs/common";
 import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
-import type { JobInfo, JobQueue, ReportJobData } from "./queue.port";
+import type { JobData, JobInfo, JobQueue } from "./queue.port";
 
 const QUEUE_NAME = "analytics-reports";
 const JOB_NAME = "analytics-report";
-const SCHEDULE_PREFIX = "schedule_";
 
 export class BullMqQueue implements JobQueue, OnModuleDestroy {
   private readonly log = new Logger("BullMqQueue");
   private readonly connection?: IORedis;
-  private readonly queue?: Queue<ReportJobData>;
-  private worker?: Worker<ReportJobData>;
+  private readonly queue?: Queue<JobData>;
+  private worker?: Worker<JobData>;
   readonly enabled: boolean;
 
   constructor(redisUrl = process.env.REDIS_URL) {
@@ -23,7 +22,7 @@ export class BullMqQueue implements JobQueue, OnModuleDestroy {
     // BullMQ requires maxRetriesPerRequest: null for blocking worker connections.
     this.connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
     this.connection.on("error", (e) => this.log.error(`Redis: ${e.message}`));
-    this.queue = new Queue<ReportJobData>(QUEUE_NAME, {
+    this.queue = new Queue<JobData>(QUEUE_NAME, {
       connection: this.connection,
       defaultJobOptions: {
         attempts: 3,
@@ -34,15 +33,15 @@ export class BullMqQueue implements JobQueue, OnModuleDestroy {
     });
   }
 
-  start(handler: (data: ReportJobData) => Promise<void>) {
+  start(handler: (data: JobData) => Promise<void>) {
     if (!this.connection || this.worker) return;
     // Low concurrency: each job makes an LLM call and we want to respect rate limits.
-    this.worker = new Worker<ReportJobData>(QUEUE_NAME, (job) => handler(job.data), { connection: this.connection, concurrency: 2 });
+    this.worker = new Worker<JobData>(QUEUE_NAME, (job) => handler(job.data), { connection: this.connection, concurrency: 2 });
     this.worker.on("failed", (job, err) => this.log.warn(`job ${job?.id} failed (attempt ${job?.attemptsMade}): ${err.message}`));
     this.worker.on("error", (err) => this.log.error(err.message));
   }
 
-  async enqueue(data: ReportJobData, jobId: string) {
+  async enqueue(data: JobData, jobId: string) {
     const q = this.requireQueue();
     const existing = await q.getJob(jobId);
     if (existing) return { jobId, deduped: true };
@@ -50,18 +49,18 @@ export class BullMqQueue implements JobQueue, OnModuleDestroy {
     return { jobId, deduped: false };
   }
 
-  async upsertSchedule(scheduleId: string, cron: string, timezone: string, data: ReportJobData) {
+  async upsertSchedule(schedulerId: string, cron: string, timezone: string, data: JobData) {
     // Deterministic scheduler id: re-registering on every boot never duplicates the schedule.
-    await this.requireQueue().upsertJobScheduler(`${SCHEDULE_PREFIX}${scheduleId}`, { pattern: cron, tz: timezone }, { name: JOB_NAME, data });
+    await this.requireQueue().upsertJobScheduler(schedulerId, { pattern: cron, tz: timezone }, { name: JOB_NAME, data });
   }
 
-  async removeSchedule(scheduleId: string) {
-    await this.requireQueue().removeJobScheduler(`${SCHEDULE_PREFIX}${scheduleId}`);
+  async removeSchedule(schedulerId: string) {
+    await this.requireQueue().removeJobScheduler(schedulerId);
   }
 
   async listScheduleIds() {
     const schedulers = await this.requireQueue().getJobSchedulers(0, -1);
-    return schedulers.map((s) => s.key).filter((k) => k.startsWith(SCHEDULE_PREFIX)).map((k) => k.slice(SCHEDULE_PREFIX.length));
+    return schedulers.map((s) => s.key);
   }
 
   async jobInfo(jobId: string): Promise<JobInfo | null> {

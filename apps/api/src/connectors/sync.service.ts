@@ -34,6 +34,8 @@ export class SyncService {
       .where(and(eq(schema.connections.workspaceId, workspaceId), eq(schema.connections.id, connectionId))).get();
     if (!conn) throw new NotFoundException("Connection not found");
 
+    if (conn.status === "pending_account") return { status: "failed", runId: "", error: "Choose an account for this connection first", needsReauth: false };
+
     const days = Math.min(Math.max(opts.days ?? 7, 1), 90);
     const endDate = opts.endDate ?? addDays(new Date().toISOString().slice(0, 10), -1);
     const range = { startDate: addDays(endDate, -(days - 1)), endDate };

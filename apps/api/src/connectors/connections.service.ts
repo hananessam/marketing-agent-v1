@@ -2,10 +2,11 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { schema, type Db } from "../db";
 import { DB } from "../db/database.module";
+import { SyncScheduleService } from "./sync-schedule.service";
 
 @Injectable()
 export class ConnectionsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(@Inject(DB) private readonly db: Db, private readonly schedule: SyncScheduleService) {}
 
   /** Never includes encryptedSecret. */
   list(workspaceId: string) {
@@ -13,15 +14,16 @@ export class ConnectionsService {
     return this.db.select({ id: c.id, provider: c.provider, accountId: c.accountId, config: c.config, status: c.status, lastSyncAt: c.lastSyncAt, lastError: c.lastError, lastSummary: c.lastSummary, createdAt: c.createdAt })
       .from(c).where(eq(c.workspaceId, workspaceId)).all()
       // config is a bag of non-secret settings; expose only what the dashboard shows.
-      .map(({ config, ...rest }) => ({ ...rest, accountName: config.accountName ?? null, tokenExpiresAt: config.expiresAt ?? null, conversionAction: config.conversionAction ?? null }));
+      .map(({ config, ...rest }) => ({ ...rest, autoSync: this.schedule.info, accountName: config.accountName ?? null, tokenExpiresAt: config.expiresAt ?? null, conversionAction: config.conversionAction ?? null }));
   }
 
   /** Forgets the stored credentials. Already-synced metrics are kept. */
-  remove(workspaceId: string, id: string) {
+  async remove(workspaceId: string, id: string) {
     const found = this.db.select({ id: schema.connections.id }).from(schema.connections)
       .where(and(eq(schema.connections.workspaceId, workspaceId), eq(schema.connections.id, id))).get();
     if (!found) throw new NotFoundException("Connection not found");
     this.db.delete(schema.connections).where(eq(schema.connections.id, id)).run();
+    await this.schedule.unschedule(id);
     return { deleted: id };
   }
 }

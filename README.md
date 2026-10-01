@@ -75,6 +75,7 @@ Put these in `apps/api/.env.local` (git-ignored). **Never commit them or paste t
 | `META_APP_ID`, `META_APP_SECRET` | "Connect Meta Ads" |
 | `API_PUBLIC_URL` | Optional, default `http://localhost:4000`; used to build OAuth redirect URIs |
 | `WEB_ORIGIN` | Optional, default `http://localhost:3000`; where users return after signing in |
+| `SYNC_CRON`, `SYNC_TIMEZONE` | Optional daily connector sync time, default `0 5 * * *` in `UTC`. At most hourly; invalid values fall back to the default |
 
 ---
 
@@ -137,6 +138,8 @@ META_APP_SECRET=...
 ### 4. Connect
 
 Restart the API, open **Connections**, click **Connect** on a provider and sign in. When you are redirected back, **pick the GA4 property or ad account** (this list needs the Admin API enabled for Google), then click **Connect and sync**. The first 30 days are pulled. Use **Sync now** to refresh, and **Remove demo data** once real data is in.
+
+**Automatic sync:** with Redis running, every connected account is re-synced daily (last 7 days, because platforms restate recent numbers) at `SYNC_CRON`, ahead of typical morning report schedules. The Connections page shows the schedule and warns when data is more than 36 hours old. A sync that fails is retried with backoff; one that needs you to sign in again is not retried, and shows "needs reconnect". Without Redis, syncing is manual.
 
 When you deploy, set `API_PUBLIC_URL` to your HTTPS URL and update the redirect URIs in both consoles to match exactly.
 

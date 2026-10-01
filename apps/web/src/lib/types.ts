@@ -43,6 +43,8 @@ export type Connection = {
   id: string; provider: Provider; accountId: string; accountName: string | null;
   status: "ok" | "needs_reauth" | "error" | "never_synced" | "pending_account";
   tokenExpiresAt: string | null; conversionAction: string | null;
+  /** null when background jobs are off on the server */
+  autoSync: { cron: string; timezone: string } | null;
   lastSyncAt: string | null; lastError: string | null;
   lastSummary: { campaigns: number; rows: number; range: { startDate: string; endDate: string }; skipped: Record<string, number> } | null;
   createdAt: string;

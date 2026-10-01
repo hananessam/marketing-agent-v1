@@ -104,6 +104,12 @@ describe("sync", () => {
     expect((await svc.sync("w", "conn_w", { endDate: "2026-03-10" })).status).toBe("succeeded");
   });
 
+  it("refuses to sync a connection that has no account chosen yet", async () => {
+    db.update(schema.connections).set({ status: "pending_account" }).where(eq(schema.connections.id, "conn_w")).run();
+    expect(await make().sync("w", "conn_w")).toMatchObject({ status: "failed", error: /Choose an account/ });
+    expect(fetched).toEqual([]);
+  });
+
   it("clamps the window to 1–90 days", async () => {
     await make().sync("w", "conn_w", { days: 500, endDate: "2026-03-31" });
     expect(fetched[0]).toEqual({ startDate: "2026-01-01", endDate: "2026-03-31" });
@@ -129,12 +135,17 @@ describe("seed purge and connections", () => {
   });
 
   it("lists connections without secrets and scopes removal by workspace", async () => {
-    const svc = new ConnectionsService(db);
+    const unscheduled: string[] = [];
+    const schedule = { info: { cron: "0 5 * * *", timezone: "UTC" }, unschedule: async (id: string) => { unscheduled.push(id); } };
+    const svc = new ConnectionsService(db, schedule as never);
     const listed = svc.list("w");
     expect(listed).toHaveLength(1);
+    expect(listed[0].autoSync).toEqual({ cron: "0 5 * * *", timezone: "UTC" });
     expect(JSON.stringify(listed)).not.toContain("encryptedSecret");
-    expect(() => svc.remove("w", "conn_other")).toThrow(/not found/);
-    svc.remove("w", "conn_w");
+    await expect(svc.remove("w", "conn_other")).rejects.toThrow(/not found/);
+    expect(unscheduled).toEqual([]);
+    await svc.remove("w", "conn_w");
+    expect(unscheduled).toEqual(["conn_w"]);
     expect(svc.list("w")).toEqual([]);
   });
 });

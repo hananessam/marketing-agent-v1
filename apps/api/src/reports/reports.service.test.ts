@@ -3,21 +3,23 @@ import type { AnalyticsService } from "../analytics/analytics.service";
 import type { Db } from "../db";
 import { createTestDb, schema } from "../test/helpers";
 import { createNotifier, formatReportMessage, SlackNotifier, type Notifier } from "./notifier";
-import type { JobQueue, ReportJobData } from "./queue.port";
+import { NotFoundException } from "@nestjs/common";
+import type { SyncService } from "../connectors/sync.service";
+import type { JobData, JobQueue, ReportJobData } from "../queue/queue.port";
 import { ReportsService } from "./reports.service";
 
 class FakeQueue implements JobQueue {
   enabled = true;
-  handler?: (d: ReportJobData) => Promise<void>;
-  jobs = new Map<string, ReportJobData>();
-  schedules = new Map<string, { cron: string; tz: string; data: ReportJobData }>();
-  start(h: (d: ReportJobData) => Promise<void>) { this.handler = h; }
-  async enqueue(data: ReportJobData, jobId: string) {
+  handler?: (d: JobData) => Promise<void>;
+  jobs = new Map<string, JobData>();
+  schedules = new Map<string, { cron: string; tz: string; data: JobData }>();
+  start(h: (d: JobData) => Promise<void>) { this.handler = h; }
+  async enqueue(data: JobData, jobId: string) {
     const deduped = this.jobs.has(jobId);
     if (!deduped) this.jobs.set(jobId, data);
     return { jobId, deduped };
   }
-  async upsertSchedule(id: string, cron: string, tz: string, data: ReportJobData) { this.schedules.set(id, { cron, tz, data }); }
+  async upsertSchedule(id: string, cron: string, tz: string, data: JobData) { this.schedules.set(id, { cron, tz, data }); }
   async removeSchedule(id: string) { this.schedules.delete(id); }
   async listScheduleIds() { return [...this.schedules.keys()]; }
   async jobInfo(id: string) { return this.jobs.has(id) ? { state: "waiting", attemptsMade: 0 } : null; }
@@ -31,13 +33,15 @@ let queue: FakeQueue;
 let run: ReturnType<typeof vi.fn>;
 let notifier: Notifier & { sendReport: ReturnType<typeof vi.fn> };
 let svc: ReportsService;
+let syncs: { sync: ReturnType<typeof vi.fn> };
 
 beforeEach(async () => {
   db = await createTestDb();
   queue = new FakeQueue();
   run = vi.fn().mockResolvedValue({ runId: "r", status: "succeeded", reused: false, output: okOutput });
   notifier = { enabled: true, sendReport: vi.fn().mockResolvedValue(undefined) };
-  svc = new ReportsService(db, queue, notifier, { run } as unknown as AnalyticsService);
+  syncs = { sync: vi.fn().mockResolvedValue({ status: "succeeded", runId: "r", summary: {} }) };
+  svc = new ReportsService(db, queue, notifier, { run } as unknown as AnalyticsService, syncs as unknown as SyncService);
   db.insert(schema.workspaces).values([{ id: "w", name: "w" }, { id: "x", name: "x" }]).run();
 });
 
@@ -98,7 +102,7 @@ describe("enqueue", () => {
 describe("schedules", () => {
   it("stores and registers a schedule, and re-registers all on boot without duplicating", async () => {
     const s = await svc.createSchedule("w", body);
-    expect(queue.schedules.get(s!.id)).toMatchObject({ cron: "0 8 * * 1", tz: "UTC", data: { workspaceId: "w", days: 7, notify: true } });
+    expect(queue.schedules.get(`schedule_${s!.id}`)).toMatchObject({ cron: "0 8 * * 1", tz: "UTC", data: { workspaceId: "w", days: 7, notify: true } });
     queue.schedules.clear();
     svc.onModuleInit(); await svc.scheduleSync;
     expect(queue.schedules.size).toBe(1);
@@ -109,9 +113,9 @@ describe("schedules", () => {
 
   it("removes orphaned schedulers on boot and skips jobs for deleted schedules", async () => {
     const kept = (await svc.createSchedule("w", body))!;
-    queue.schedules.set("ghost", { cron: "0 8 * * 1", tz: "UTC", data: { workspaceId: "w", days: 7, notify: false, scheduleId: "ghost" } });
+    queue.schedules.set("schedule_ghost", { cron: "0 8 * * 1", tz: "UTC", data: { workspaceId: "w", days: 7, notify: false, scheduleId: "ghost" } });
     svc.onModuleInit(); await svc.scheduleSync;
-    expect([...queue.schedules.keys()]).toEqual([kept.id]);
+    expect([...queue.schedules.keys()]).toEqual([`schedule_${kept.id}`]);
 
     await svc.process({ workspaceId: "w", days: 7, notify: true, scheduleId: "ghost" });
     expect(run).not.toHaveBeenCalled();
@@ -140,6 +144,37 @@ describe("schedules", () => {
     await svc.deleteSchedule("w", s.id);
     expect(queue.schedules.size).toBe(0);
     expect(svc.listSchedules("w")).toEqual([]);
+  });
+});
+
+describe("sync jobs (same worker)", () => {
+  const job = { kind: "sync" as const, workspaceId: "w", connectionId: "c1", days: 7 };
+
+  it("dispatches by kind, and treats a job without kind as a report", async () => {
+    await svc.dispatch(job);
+    expect(syncs.sync).toHaveBeenCalledWith("w", "c1", { days: 7 });
+    expect(run).not.toHaveBeenCalled();
+    await svc.dispatch({ workspaceId: "w", days: 7, notify: false });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries real failures but not ones only the user can fix, and ignores deleted connections", async () => {
+    syncs.sync.mockResolvedValue({ status: "failed", runId: "r", error: "Meta API error: boom", needsReauth: false });
+    await expect(svc.dispatch(job)).rejects.toThrow("boom");
+    syncs.sync.mockResolvedValue({ status: "failed", runId: "", error: "A sync for this connection is already running", needsReauth: false });
+    await expect(svc.dispatch(job)).rejects.toThrow(/already running/);
+    syncs.sync.mockResolvedValue({ status: "failed", runId: "r", error: "revoked", needsReauth: true });
+    await expect(svc.dispatch(job)).resolves.toBeUndefined();
+    syncs.sync.mockRejectedValue(new NotFoundException("Connection not found"));
+    await expect(svc.dispatch(job)).resolves.toBeUndefined();
+    syncs.sync.mockRejectedValue(new Error("db down"));
+    await expect(svc.dispatch(job)).rejects.toThrow("db down");
+  });
+
+  it("report boot cleanup leaves sync schedulers alone", async () => {
+    queue.schedules.set("sync_c1", { cron: "0 5 * * *", tz: "UTC", data: job });
+    svc.onModuleInit(); await svc.scheduleSync;
+    expect(queue.schedules.has("sync_c1")).toBe(true);
   });
 });
 

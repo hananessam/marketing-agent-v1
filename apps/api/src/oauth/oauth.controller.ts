@@ -3,6 +3,7 @@ import type { Response } from "express";
 import { z } from "zod";
 import { WorkspaceGuard, WorkspaceId } from "../common/workspace.guard";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { SyncScheduleService } from "../connectors/sync-schedule.service";
 import { SyncService } from "../connectors/sync.service";
 import { OAuthService } from "./oauth.service";
 
@@ -11,7 +12,7 @@ const SelectBody = z.object({ accountId: z.string().min(1), conversionAction: z.
 
 @Controller("connections/oauth")
 export class OAuthController {
-  constructor(private readonly oauth: OAuthService, private readonly sync: SyncService) {}
+  constructor(private readonly oauth: OAuthService, private readonly sync: SyncService, private readonly schedule: SyncScheduleService) {}
 
   @Get("status")
   @UseGuards(WorkspaceGuard)
@@ -46,6 +47,7 @@ export class OAuthController {
   @UseGuards(WorkspaceGuard)
   async select(@WorkspaceId() ws: string, @Param("id") id: string, @Body(new ZodValidationPipe(SelectBody)) body: z.infer<typeof SelectBody>) {
     const { connectionId } = await this.oauth.selectAccount(ws, id, body.accountId, body.conversionAction);
+    await this.schedule.schedule({ id: connectionId, workspaceId: ws }); // daily refresh from now on
     return { connectionId, sync: await this.sync.sync(ws, connectionId, { days: 30 }) };
   }
 }

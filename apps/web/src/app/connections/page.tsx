@@ -18,6 +18,13 @@ const OAUTH_ERRORS: Record<string, string> = {
   exchange_failed: "The provider rejected the sign-in. Please try again; if it keeps failing, check the server's client id and secret.",
   not_configured: "This provider is not configured on the server.",
 };
+/** "30 5 * * *" -> "daily at 05:30 UTC"; anything else is shown as the raw cron. */
+function describeSchedule(a: { cron: string; timezone: string }) {
+  const m = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(a.cron);
+  return m ? `daily at ${m[2].padStart(2, "0")}:${m[1].padStart(2, "0")} ${a.timezone}` : `${a.cron} (${a.timezone})`;
+}
+const STALE_HOURS = 36;
+
 const STATUS_TONE: Record<Connection["status"], Tone> = { ok: "good", needs_reauth: "bad", error: "bad", never_synced: "warn", pending_account: "warn" };
 const STATUS_LABEL: Record<Connection["status"], string> = { ok: "connected", needs_reauth: "needs reconnect", error: "sync error", never_synced: "not synced yet", pending_account: "choose account" };
 
@@ -91,12 +98,15 @@ function ConnectionRow({ c, slug }: { c: Connection; slug: "google" | "meta" }) 
   const daysLeft = c.tokenExpiresAt ? Math.ceil((Date.parse(c.tokenExpiresAt) - now) / 86_400_000) : null;
   const expiring = daysLeft !== null && daysLeft <= 10;
   const s = c.lastSummary;
+  const hoursSince = c.lastSyncAt ? Math.floor((now - Date.parse(c.lastSyncAt)) / 3_600_000) : null;
+  const stale = c.status === "ok" && hoursSince !== null && hoursSince >= STALE_HOURS;
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{c.accountName ?? (c.status === "pending_account" ? "New connection" : c.accountId)}</span>
         <Badge tone={STATUS_TONE[c.status] ?? statusTone(c.status)}>{STATUS_LABEL[c.status]}</Badge>
+        {stale && <Badge tone="warn">data may be stale ({Math.floor(hoursSince! / 24)}d old)</Badge>}
         {expiring && <Badge tone={daysLeft! <= 0 ? "bad" : "warn"}>{daysLeft! <= 0 ? "token expired" : `token expires in ${daysLeft} day(s)`}</Badge>}
         <span className="grow" />
         {c.status !== "pending_account" && <Button variant="secondary" disabled={sync.isPending || c.status === "needs_reauth"} onClick={() => sync.mutate()}>{sync.isPending ? "Syncing…" : "Sync now"}</Button>}
@@ -118,6 +128,11 @@ function ConnectionRow({ c, slug }: { c: Connection; slug: "google" | "meta" }) 
       {sync.data?.status === "failed" && <div className="mt-2"><ErrorBox error={sync.data.error} /></div>}
       {sync.error && <div className="mt-2"><ErrorBox error={sync.error.message} /></div>}
       {remove.error && <div className="mt-2"><ErrorBox error={remove.error.message} /></div>}
+      {c.status !== "pending_account" && (
+        <p className="mt-1 text-xs text-zinc-500">
+          {c.autoSync ? `Syncs automatically ${describeSchedule(c.autoSync)}.` : "Automatic sync is off: start Redis and set REDIS_URL on the server to enable it."}
+        </p>
+      )}
       {c.status === "ok" && s && (
         <p className="mt-1 text-xs text-zinc-500">
           Last sync {c.lastSyncAt ? new Date(c.lastSyncAt).toLocaleString() : ""}: {s.campaigns} campaign(s), {s.rows} daily row(s), {s.range.startDate} → {s.range.endDate}

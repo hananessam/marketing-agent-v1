@@ -1,5 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException, type OnModuleInit } from "@nestjs/common";
-import { CronExpressionParser } from "cron-parser";
+import { Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException, type OnModuleInit } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -7,7 +6,9 @@ import { AnalyticsService, type AnalyticsOutput } from "../analytics/analytics.s
 import { schema, type Db } from "../db";
 import { DB } from "../db/database.module";
 import { NOTIFIER, type Notifier } from "./notifier";
-import { JOB_QUEUE, type JobQueue, type ReportJobData } from "./queue.port";
+import { SyncService } from "../connectors/sync.service";
+import { validateCron } from "../queue/cron";
+import { isSyncJob, JOB_QUEUE, type JobData, type JobQueue, type ReportJobData, type SyncJobData } from "../queue/queue.port";
 
 export const ScheduleBody = z.object({
   cron: z.string().min(9).max(100),
@@ -21,23 +22,8 @@ export const EnqueueBody = z.object({
   notify: z.boolean().default(false),
 });
 
-/** Every scheduled run costs an LLM call, so refuse schedules more frequent than this. */
-export const MIN_INTERVAL_MS = 60 * 60 * 1000;
-
+const REPORT_PREFIX = "schedule_";
 const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, "_");
-
-export function validateCron(cron: string, timezone: string) {
-  try { new Intl.DateTimeFormat("en", { timeZone: timezone }); } catch { throw new BadRequestException(`Unknown timezone "${timezone}"`); }
-  let it: ReturnType<typeof CronExpressionParser.parse>;
-  try { it = CronExpressionParser.parse(cron, { tz: timezone }); } catch { throw new BadRequestException(`Invalid cron expression "${cron}"`); }
-  if (cron.trim().split(/\s+/).length !== 5) throw new BadRequestException("Use a standard 5-field cron expression");
-  let prev = it.next().getTime();
-  for (let i = 0; i < 6; i++) {
-    const next = it.next().getTime();
-    if (next - prev < MIN_INTERVAL_MS) throw new BadRequestException("Schedules may run at most once per hour");
-    prev = next;
-  }
-}
 
 @Injectable()
 export class ReportsService implements OnModuleInit {
@@ -48,6 +34,7 @@ export class ReportsService implements OnModuleInit {
     @Inject(JOB_QUEUE) private readonly queue: JobQueue,
     @Inject(NOTIFIER) private readonly notifier: Notifier,
     private readonly analytics: AnalyticsService,
+    private readonly syncs: SyncService,
   ) {}
 
   /** Settles when the boot-time schedule sync has finished (tests await it). */
@@ -55,7 +42,7 @@ export class ReportsService implements OnModuleInit {
 
   onModuleInit() {
     if (!this.queue.enabled) return;
-    this.queue.start((data) => this.process(data));
+    this.queue.start((data) => this.dispatch(data));
     // Deliberately not awaited: if Redis is down the API must still start and serve requests;
     // the Redis client keeps retrying and this completes once it is reachable.
     this.scheduleSync = this.syncSchedules().catch((e) => {
@@ -63,7 +50,25 @@ export class ReportsService implements OnModuleInit {
     });
   }
 
-  /** Job handler. Throwing makes the queue retry with backoff. */
+  /** One worker serves every job kind. Throwing makes the queue retry with backoff. */
+  dispatch(data: JobData): Promise<void> {
+    return isSyncJob(data) ? this.processSync(data) : this.process(data);
+  }
+
+  private async processSync(d: SyncJobData) {
+    let out;
+    try {
+      out = await this.syncs.sync(d.workspaceId, d.connectionId, { days: d.days });
+    } catch (e) {
+      if (e instanceof NotFoundException) { this.log.warn(`Skipping sync for deleted connection ${d.connectionId}`); return; }
+      throw e;
+    }
+    if (out.status === "succeeded") return;
+    // The connection already records needs_reauth; retrying cannot help until the user reconnects.
+    if (out.needsReauth) { this.log.warn(`Sync ${d.connectionId} needs the user to reconnect`); return; }
+    throw new Error(out.error);
+  }
+
   async process(data: ReportJobData) {
     // A scheduler can outlive its row (e.g. deleted while the queue was unreachable): do nothing.
     if (data.scheduleId && !this.db.select({ id: schema.reportSchedules.id }).from(schema.reportSchedules)
@@ -129,7 +134,7 @@ export class ReportsService implements OnModuleInit {
     const found = this.db.select().from(schema.reportSchedules)
       .where(and(eq(schema.reportSchedules.workspaceId, workspaceId), eq(schema.reportSchedules.id, id))).get();
     if (!found) throw new NotFoundException("Schedule not found");
-    await this.queue.removeSchedule(id);
+    await this.queue.removeSchedule(`${REPORT_PREFIX}${id}`);
     this.db.delete(schema.reportSchedules).where(eq(schema.reportSchedules.id, id)).run();
     return { deleted: id };
   }
@@ -140,14 +145,14 @@ export class ReportsService implements OnModuleInit {
     for (const s of rows) await this.register(s);
     const known = new Set(rows.map((r) => r.id));
     for (const id of await this.queue.listScheduleIds()) {
-      if (known.has(id)) continue;
+      if (!id.startsWith(REPORT_PREFIX) || known.has(id.slice(REPORT_PREFIX.length))) continue; // leave other kinds of scheduler alone
       this.log.warn(`Removing orphaned schedule ${id}`);
       await this.queue.removeSchedule(id);
     }
   }
 
   private register(s: { id: string; workspaceId: string; cron: string; timezone: string; days: number; notify: boolean }) {
-    return this.queue.upsertSchedule(s.id, s.cron, s.timezone, { workspaceId: s.workspaceId, days: s.days, notify: s.notify, scheduleId: s.id });
+    return this.queue.upsertSchedule(`${REPORT_PREFIX}${s.id}`, s.cron, s.timezone, { workspaceId: s.workspaceId, days: s.days, notify: s.notify, scheduleId: s.id });
   }
 
   private requireQueue() {
