@@ -1,7 +1,8 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadGatewayException, BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { and, eq, lt } from "drizzle-orm";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { encryptSecret, decryptSecret } from "../connectors/crypto";
+import { ConnectorAuthError, ConnectorError } from "../connectors/http";
 import { schema, type Db } from "../db";
 import { DB } from "../db/database.module";
 import { OAUTH_PROVIDERS, type Account, type OAuthProvider } from "./providers";
@@ -88,7 +89,14 @@ export class OAuthService {
 
   async accounts(workspaceId: string, connectionId: string): Promise<Account[]> {
     const conn = this.connection(workspaceId, connectionId);
-    return this.provider(conn.provider === "ga4" ? "google" : "meta").listAccounts(decryptSecret(conn.encryptedSecret));
+    try {
+      return await this.provider(conn.provider === "ga4" ? "google" : "meta").listAccounts(decryptSecret(conn.encryptedSecret));
+    } catch (e) {
+      // Provider errors are already sanitized (no tokens or URLs), so their message is safe to show.
+      if (e instanceof ConnectorAuthError) throw new ConflictException(e.message);
+      if (e instanceof ConnectorError) throw new BadGatewayException(e.message);
+      throw e;
+    }
   }
 
   /** Finalise a pending connection with an account the user actually has access to. */

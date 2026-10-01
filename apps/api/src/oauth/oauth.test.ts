@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { decryptSecret } from "../connectors/crypto";
-import { ConnectorAuthError } from "../connectors/http";
+import { ConnectorAuthError, ConnectorError } from "../connectors/http";
 import type { Db } from "../db";
 import { createTestDb, schema } from "../test/helpers";
 import { OAuthService } from "./oauth.service";
@@ -190,6 +190,16 @@ describe("OAuthService", () => {
 
     await svc.selectAccount("w", id, "111");
     expect(connections()[0]).toMatchObject({ accountId: "111", status: "never_synced", config: { accountName: "Web" } });
+  });
+
+  it("turns provider failures into readable HTTP errors instead of a 500", async () => {
+    await svc.callback("google", { code: "c", state: stateFrom(svc.start("w", "google").authUrl) });
+    const { id } = connections()[0];
+    google.listAccounts = async () => { throw new ConnectorError("Could not list GA4 properties: Admin API has not been used in project 1 before or it is disabled."); };
+    await expect(svc.accounts("w", id)).rejects.toMatchObject({ status: 502, message: expect.stringContaining("Admin API") });
+    google.listAccounts = async () => { throw new ConnectorAuthError("Google access was revoked. Please reconnect."); };
+    await expect(svc.accounts("w", id)).rejects.toMatchObject({ status: 409 });
+    await expect(svc.selectAccount("w", id, "111")).rejects.toMatchObject({ status: 409 });
   });
 
   it("reconnecting replaces the tokens on the existing connection; other workspaces cannot reconnect it", async () => {
