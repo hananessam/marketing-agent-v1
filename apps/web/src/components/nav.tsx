@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import type { Approval } from "@/lib/types";
 
 const LINKS = [
-  { href: "/", label: "Analytics" },
+  { href: "/", label: "Overview" },
   { href: "/campaigns", label: "Campaigns" },
   { href: "/approvals", label: "Approvals" },
   { href: "/connections", label: "Connections" },
