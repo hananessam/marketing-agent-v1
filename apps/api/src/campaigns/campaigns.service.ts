@@ -1,6 +1,6 @@
 import { aggregate, calculateMetrics, CampaignBrief, type CampaignPlan } from "@marketing/shared";
 import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
-import { and, asc, desc, eq, gte, lte, max } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, max, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { schema, type Db } from "../db";
@@ -193,7 +193,7 @@ export class CampaignsService {
   listApprovals(workspaceId: string, status?: "pending" | "approved" | "rejected") {
     return this.db.select().from(schema.approvals)
       .where(status ? and(eq(schema.approvals.workspaceId, workspaceId), eq(schema.approvals.status, status)) : eq(schema.approvals.workspaceId, workspaceId))
-      .orderBy(desc(schema.approvals.createdAt)).all();
+      .orderBy(desc(schema.approvals.createdAt), desc(sql`rowid`)).all();
   }
 
   decide(workspaceId: string, approvalId: string, decision: "approved" | "rejected", decidedBy: string, note?: string) {
@@ -247,9 +247,9 @@ export class CampaignsService {
     return { approvalId: id, campaignId };
   }
 
-  /** Newest first. */
+  /** Newest first. Timestamps only have millisecond precision, so rowid (insertion order) breaks ties deterministically. */
   private approvalsFor(workspaceId: string, campaignId: string) {
-    return this.db.select().from(schema.approvals).where(eq(schema.approvals.workspaceId, workspaceId)).orderBy(desc(schema.approvals.createdAt)).all()
+    return this.db.select().from(schema.approvals).where(eq(schema.approvals.workspaceId, workspaceId)).orderBy(desc(schema.approvals.createdAt), desc(sql`rowid`)).all()
       .filter((a) => (a.payload as { campaignId?: string } | null)?.campaignId === campaignId);
   }
 
