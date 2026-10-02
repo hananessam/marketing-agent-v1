@@ -86,7 +86,8 @@ Put these in `apps/api/.env.local` (git-ignored). **Never commit them or paste t
 | `META_APP_ID`, `META_APP_SECRET` | "Connect Meta Ads" |
 | `API_PUBLIC_URL` | Optional, default `http://localhost:4000`; used to build OAuth redirect URIs |
 | `WEB_ORIGIN` | Optional, default `http://localhost:3000`; where users return after signing in |
-| `EXECUTION_MODE` | Optional, default `shadow`. See [Actions and shadow mode](#actions-and-shadow-mode); `live` does nothing extra until live executors exist |
+| `EXECUTION_MODE` | Optional, default `shadow`. Set to `live` to let **Approve campaign** create ads on Meta (see [Posting to Meta](#posting-to-meta)). Anything else only records what would be posted |
+| `MAX_DAILY_BUDGET` | Optional, default `50`. Hard ceiling on the daily budget this app will ever set on an ad, whatever is typed into a form |
 | `SYNC_CRON`, `SYNC_TIMEZONE` | Optional daily connector sync time, default `0 5 * * *` in `UTC`. At most hourly; invalid values fall back to the default |
 
 ---
@@ -197,7 +198,7 @@ The agent can propose things to *do*, not just things to read. Everything goes t
 | Add a task | "Add to my tasks" on any recommendation | none (internal, harmless) | Runs immediately; appears on **Tasks** |
 | Pause a campaign | "Propose pausing" on a recommendation | required | **Shadow**: recorded, not applied |
 | Change a budget (max 10% at a time) | "Propose a budget change" | required | **Shadow** |
-| Publish a campaign | "Prepare launch package" on an approved campaign | required | **Shadow**: the approved copy is laid out per channel, ready to paste |
+| Publish a campaign | **Approve campaign** (Meta copy) | required (the Approve button is the approval) | With `EXECUTION_MODE=live` and posting allowed: **paused ads are created on Meta**. Otherwise **shadow**: recorded, not applied |
 
 **Shadow mode** is the first stage of the staged rollout in the original plan (read-only, then shadow, then approval, then limited autonomy). Your Meta and Google connections are read-only, so approving an external action records *exactly what would have happened* and changes nothing outside this app. The inbox says so before you decide, and Activity labels these "Recorded, not applied". `EXECUTION_MODE=live` does nothing extra yet: a real action type needs a live executor (one function in `apps/api/src/actions/actions.service.ts`) plus write permission on the platform, such as Meta `ads_management`. Until then it falls back to shadow and says why.
 
@@ -207,6 +208,32 @@ How it stays safe:
 - Each action is **claimed before it runs**, so approving twice, or two people approving at once, can never execute it twice. Identical proposals are not duplicated.
 - Budget changes above 10%, pausing or re-budgeting a Google Analytics report, publishing an unapproved campaign, or scheduling in the past are refused.
 - A rejected or failed action can be proposed again.
+
+---
+
+## Posting to Meta
+
+When you approve a campaign that has Facebook & Instagram copy, the app can create the ads in your Meta ad account for you. It is **off by default** and, when on, it only ever creates things **paused**.
+
+**What gets created:** one campaign (objective *Traffic*), one ad set (the daily budget and country you enter) and one ad per variant (A, B, …), each using that variant's own headline, description, post text and button. Links carry `utm_source/medium/campaign/content` tags so Google Analytics can attribute the visits. Nothing spends until *you* switch the ads on in Ads Manager. After creating them the app asks Meta to confirm each one really is paused (and pauses it if not).
+
+**Turning it on (one time):**
+1. In your Meta app, make sure the permissions `ads_management`, `pages_show_list` and `pages_read_engagement` are available. In **Development** mode they work for people who have a role on the app (Administrator, Developer or Tester), for their own ad accounts and Pages.
+2. **Settings → Meta Ads → Allow posting** and accept the extra permissions (they are asked for separately from the read-only connection).
+3. Add `EXECUTION_MODE=live` to `apps/api/.env.local` (optionally `MAX_DAILY_BUDGET=...`) and restart the API.
+4. Your ad account needs billing set up and must be active, and you need a Facebook Page to post as.
+
+**Using it:** open a draft, fill in the short form that appears (daily budget, country, Facebook Page, landing page; they are remembered for next time) and press **Approve and create paused ads on Meta**.
+
+**Safeguards**
+- Everything is created `PAUSED` and verified paused; if anything fails part-way, what was created is deleted again (each object explicitly, children first), and anything that could not be deleted is listed by id.
+- Write requests are never retried after a timeout or server error (the ad might already exist), so a retry cannot create duplicates. Only Meta's explicit "rate limited, nothing was done" answers are retried.
+- A campaign that has already been posted cannot be posted again, and identical requests are treated as one.
+- The daily budget is capped (`MAX_DAILY_BUDGET`), the landing page must be https on one of your own websites, and the Facebook Page must be one the connected login manages. All of this is checked when you ask and again when it runs.
+- The access token travels in a header, never in a URL, and is never written to logs or results.
+- Without the extra permissions, or with `EXECUTION_MODE` unset, approving behaves exactly as before: the copy is saved and nothing is posted.
+
+**Limits (today):** Google Ads is not supported (it needs a Google Ads developer token, an extra sign-in permission and keyword generation), so that copy stays on the campaign page with Copy buttons. Ads are link ads with text only (no image or video, so Meta shows the landing page's preview image), optimised for clicks (a *Traffic* campaign), targeted by country only. Conversion tracking and richer targeting are not set up. Meta's API changes over time; if Meta rejects a request, the exact reason is shown on the campaign page.
 
 ---
 

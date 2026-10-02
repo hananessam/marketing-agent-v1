@@ -12,6 +12,8 @@ export type CampaignDetail = Campaign & {
   experiments: { id: string; hypothesis: string; variable: string }[];
   /** The newest approval request for this campaign, if any. */
   approval: { id: string; status: "pending" | "approved" | "rejected"; decidedBy: string | null; decidedAt: string | null; note: string | null; createdAt: string } | null;
+  /** The newest attempt to post this campaign to the ad platforms, if any. */
+  publish: PublishInfo | null;
 };
 
 export type Approval = { id: string; action: string; summary: string; status: "pending" | "approved" | "rejected"; payload: { campaignId: string; note?: string }; decidedBy: string | null; createdAt: string };
@@ -83,3 +85,11 @@ export type Company = {
   approvedClaims: string[]; prohibited: string[]; allowedDomains: string[];
   products: (CompanyItem & { id: string })[]; audiences: (CompanyItem & { id: string })[];
 };
+
+export type PublishingStatus = {
+  mode: "shadow" | "live"; maxDailyBudget: number;
+  meta: { connected: boolean; connectionId: string | null; accountName: string | null; canPublish: boolean; missing: string[]; defaults: { dailyBudget: number; country: string; pageId: string; landingUrl: string } | null };
+  google: { available: boolean; reason: string };
+};
+export type MetaDetails = PublishingStatus & { currency: string | null; accountActive: boolean | null; pages: { id: string; name: string }[] };
+export type PublishInfo = { id: string; status: ActionStatus; result: Record<string, unknown> | null; createdAt: string; executedAt: string | null };

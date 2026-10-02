@@ -42,7 +42,9 @@ export class ActionsService {
     if (policy === "never") throw new ForbiddenException("This kind of action is never allowed");
 
     const preview = this.buildPreview(workspaceId, input.type, payload);
-    const key = createHash("sha256").update(canonical({ type: input.type, payload, source: input.source, sourceRef: input.sourceRef ?? null })).digest("hex");
+    // Publishing has one real-world effect however it was asked for, so who asked (or from where) must not make a "new" request.
+    const origin = input.type === "publish_campaign" ? { source: "any", sourceRef: null } : { source: input.source, sourceRef: input.sourceRef ?? null };
+    const key = createHash("sha256").update(canonical({ type: input.type, payload, ...origin })).digest("hex");
     const existing = this.db.select().from(schema.actions).where(and(eq(schema.actions.workspaceId, workspaceId), eq(schema.actions.idempotencyKey, key))).get();
     if (existing) return { action: existing, reused: true };
 
@@ -188,6 +190,10 @@ export class ActionsService {
         }
         // Budget cap, landing page and permission checks live with the publisher (and run again when the action executes).
         this.publisher?.preflight(workspaceId, c.id, p.meta);
+        // A campaign already created on Meta is not created again: a second post would duplicate the ads (and the spend once switched on).
+        if (this.mode === "live" && this.publisher && p.meta && this.postedToMeta(workspaceId, c.id)) {
+          throw new ConflictException("This campaign has already been posted to Meta (paused). Manage it in Ads Manager.");
+        }
         const posting = p.meta && byChannel.has("meta_ads") && this.mode === "live" && this.publisher
           ? ` · Meta: ${p.meta.dailyBudget} per day in ${p.meta.country}, created PAUSED` : "";
         return {
@@ -199,6 +205,13 @@ export class ActionsService {
   }
 
   // ------------------------------------------------------------------ reading
+
+  private postedToMeta(workspaceId: string, campaignId: string): boolean {
+    return this.db.select().from(schema.actions)
+      .where(and(eq(schema.actions.workspaceId, workspaceId), eq(schema.actions.type, "publish_campaign"), eq(schema.actions.status, "executed"))).all()
+      .some((a) => (a.payload as { campaignId?: string }).campaignId === campaignId
+        && (a.result as { platforms?: { meta_ads?: { outcome?: string } } } | null)?.platforms?.meta_ads?.outcome === "created_paused");
+  }
 
   /** The newest publish request for a campaign, for the campaign page. */
   latestPublish(workspaceId: string, campaignId: string) {

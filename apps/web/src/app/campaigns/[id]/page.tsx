@@ -6,8 +6,9 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { ApiError, api, errorDetails } from "@/lib/api";
 import { friendlyIssue, label } from "@/lib/format";
-import type { Asset, CampaignDetail } from "@/lib/types";
+import type { Asset, CampaignDetail, Company } from "@/lib/types";
 import { CampaignPerformanceView } from "@/components/campaign-performance";
+import { MetaSettingsFields, PostingNote, PostingResult, postToMeta, useMetaForm, usePublishing, whyNotPosting } from "@/components/meta-posting";
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass } from "@/components/ui";
 
 const KIND: Record<string, string> = { ad_headline: "Headline", ad_description: "Description", social_post: "Post", cta: "Button" };
@@ -22,6 +23,7 @@ function group(assets: Asset[]) {
 export default function CampaignPage() {
   const { id } = useParams<{ id: string }>();
   const q = useQuery({ queryKey: ["campaign", id], queryFn: () => api<CampaignDetail>(`/campaigns/${id}`) });
+  const [postError, setPostError] = useState<string | null>(null);
 
   if (q.isLoading) return <Empty>Loading…</Empty>;
   if (q.error instanceof ApiError && q.error.status === 404) {
@@ -36,15 +38,22 @@ export default function CampaignPage() {
   const c = q.data!;
   // Sample data and campaigns synced from Meta or Google have no drafted copy: show how they are doing instead.
   if (!c.brief && !c.plan && c.assets.length === 0) return <CampaignPerformanceView id={id} />;
-  return c.status === "approved" ? <Approved c={c} /> : <Draft c={c} id={id} />;
+  return c.status === "approved" ? <Approved c={c} id={id} postError={postError} setPostError={setPostError} /> : <Draft c={c} id={id} setPostError={setPostError} />;
 }
 
 // ------------------------------------------------------------------ reviewing a draft
 
-function Draft({ c, id }: { c: CampaignDetail; id: string }) {
+function Draft({ c, id, setPostError }: { c: CampaignDetail; id: string; setPostError: (m: string | null) => void }) {
   const qc = useQueryClient();
   const live = c.assets.filter((a) => a.status !== "rejected"); // removed copy is simply hidden
   const flawed = live.filter((a) => a.issues.length > 0).length;
+
+  // Approving also creates the ads on Meta (paused), when that is switched on and the campaign has Meta copy.
+  const hasMeta = live.some((a) => a.variant.startsWith("meta_ads:"));
+  const pub = usePublishing(hasMeta);
+  const company = useQuery({ queryKey: ["company"], queryFn: () => api<Company>("/company") });
+  const form = useMetaForm(pub.details, company.data);
+  const posting = hasMeta && pub.ready && Boolean(pub.details);
 
   const approve = useMutation({
     mutationFn: async () => {
@@ -52,6 +61,11 @@ function Draft({ c, id }: { c: CampaignDetail; id: string }) {
       // After an earlier rejection there is no open request: open a fresh one, then approve it.
       const approvalId = c.approval?.status === "pending" ? c.approval.id : (await api<{ approvalId: string }>(`/campaigns/${id}/request-approval`, { method: "POST" })).approvalId;
       await api(`/approvals/${approvalId}/decision`, { method: "POST", body: { decision: "approved", decidedBy: "You" } });
+      // The campaign is approved from here on. If posting fails, say so clearly instead of undoing the approval.
+      setPostError(null);
+      if (posting) {
+        try { await postToMeta(id, form.payload()); } catch (e) { setPostError(e instanceof Error ? e.message : "Posting to Meta failed."); }
+      }
     },
     onSettled: () => { qc.invalidateQueries({ queryKey: ["campaign", id] }); qc.invalidateQueries({ queryKey: ["campaigns"] }); },
   });
@@ -74,11 +88,17 @@ function Draft({ c, id }: { c: CampaignDetail; id: string }) {
       ))}
       {live.length === 0 && <Card><Empty>You removed all the copy. Go back and create a new campaign.</Empty></Card>}
 
+      {posting && pub.details && <MetaSettingsFields form={form} details={pub.details} />}
+      {hasMeta && !posting && !pub.loading && <PostingNote reason={whyNotPosting(pub.status)} />}
+      {pub.detailsError && <ErrorBox error={pub.detailsError.message} />}
+
       <div className="sticky bottom-0 -mx-4 border-t border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
         {flawed > 0 && <p className="mb-2 text-sm text-amber-700 dark:text-amber-400">{flawed === 1 ? "One piece of copy needs" : `${flawed} pieces of copy need`} a quick fix before you can approve. They are highlighted above.</p>}
         {approve.error && <div className="mb-2"><ErrorBox error={approve.error.message} details={errorDetails(approve.error)} /></div>}
-        <Button onClick={() => approve.mutate()} disabled={approve.isPending || flawed > 0 || live.length === 0}>{approve.isPending ? "Approving…" : "Approve campaign"}</Button>
-        <span className="ml-3 text-xs text-zinc-500">Nothing is published or sent.</span>
+        <Button onClick={() => approve.mutate()} disabled={approve.isPending || flawed > 0 || live.length === 0 || (posting && !form.valid)}>
+          {approve.isPending ? (posting ? "Approving and creating ads…" : "Approving…") : posting ? "Approve and create paused ads on Meta" : "Approve campaign"}
+        </Button>
+        <span className="ml-3 text-xs text-zinc-500">{posting ? "The ads are created paused: nothing spends until you switch them on." : "Nothing is published or sent."}</span>
       </div>
     </div>
   );
@@ -140,13 +160,39 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function Approved({ c }: { c: CampaignDetail }) {
+function Approved({ c, id, postError, setPostError }: { c: CampaignDetail; id: string; postError: string | null; setPostError: (m: string | null) => void }) {
+  const qc = useQueryClient();
   const items = c.assets.filter((a) => a.status === "approved");
+  const hasMeta = items.some((a) => a.variant.startsWith("meta_ads:"));
+  const posted = c.publish?.status === "executed";
+
+  // Offer (another) try when Meta copy has not been posted yet and posting is possible.
+  const pub = usePublishing(hasMeta && !posted);
+  const company = useQuery({ queryKey: ["company"], queryFn: () => api<Company>("/company") });
+  const form = useMetaForm(pub.details, company.data);
+  const canRetry = hasMeta && !posted && pub.ready && Boolean(pub.details);
+  const retry = useMutation({
+    mutationFn: async () => { setPostError(null); await postToMeta(id, form.payload()); },
+    onError: (e) => setPostError(e instanceof Error ? e.message : "Posting to Meta failed."),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["campaign", id] }),
+  });
+
   return (
     <div className="space-y-5">
       <Link href="/campaigns" className="text-sm text-zinc-500 underline">← All campaigns</Link>
       <PageHeader title={c.name} actions={<Badge tone="good">Approved</Badge>} />
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">Your copy is approved and ready to use. The app doesn&apos;t post it for you yet, so copy it into each tool.</p>
+
+      <PostingResult publish={c.publish} />
+      {postError && !c.publish?.result?.error && <ErrorBox error="Your campaign is approved, but it could not be posted to Meta." details={[postError]} />}
+      {canRetry && pub.details && (
+        <div className="space-y-3">
+          <MetaSettingsFields form={form} details={pub.details} />
+          <Button onClick={() => retry.mutate()} disabled={retry.isPending || !form.valid}>{retry.isPending ? "Creating ads…" : "Create paused ads on Meta"}</Button>
+        </div>
+      )}
+      {hasMeta && !posted && !canRetry && !pub.loading && <PostingNote reason={whyNotPosting(pub.status)} />}
+
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">Your approved copy{posted ? "" : ". The app hasn't posted it, so copy it into each tool"}:</p>
       {[...group(items)].map(([channel, assets]) => (
         <Card key={channel} title={CHANNEL[channel] ?? label(channel)}>
           <ul className="space-y-4">

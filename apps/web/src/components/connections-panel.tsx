@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { api } from "@/lib/api";
-import type { Account, Connection, OAuthStatus, Provider, SyncOutcome } from "@/lib/types";
+import type { Account, Connection, OAuthStatus, Provider, PublishingStatus, SyncOutcome } from "@/lib/types";
 import { Badge, Button, Card, Empty, ErrorBox, inputClass, statusTone, type Tone } from "@/components/ui";
 
 const PROVIDERS: { provider: Provider; slug: "google" | "meta"; title: string; blurb: string; env: string }[] = [
@@ -72,7 +72,39 @@ function ProviderCard({ p, configured, connections }: { p: (typeof PROVIDERS)[nu
           {connections.map((c) => <li key={c.id} className="py-3"><ConnectionRow c={c} slug={p.slug} /></li>)}
         </ul>
       )}
+      {p.provider === "meta_ads" && connections.some((c) => c.status === "ok" || c.status === "never_synced") && <PostingPanel connection={connections[0]} />}
     </Card>
+  );
+}
+
+/** Reading numbers needs little; creating ads needs more. This is the separate, explicit step to allow it. */
+function PostingPanel({ connection }: { connection: Connection }) {
+  const status = useQuery({ queryKey: ["publishing-status"], queryFn: () => api<PublishingStatus>("/publishing/status") });
+  const start = useMutation({
+    mutationFn: () => api<{ authUrl: string }>("/connections/oauth/meta/start", { method: "POST", body: { connectionId: connection.id, posting: true } }),
+    onSuccess: (r) => window.location.assign(r.authUrl),
+  });
+  const s = status.data;
+  if (!s) return null;
+  return (
+    <div className="mt-4 rounded-md border border-zinc-200 p-3 text-sm dark:border-zinc-800">
+      <p className="font-medium">Posting ads</p>
+      {s.meta.canPublish ? (
+        <p className="mt-1 text-zinc-600 dark:text-zinc-400">Allowed. When you approve a campaign it can create the ads in this account, <strong>always paused</strong>, with a daily budget of at most {s.maxDailyBudget}.</p>
+      ) : (
+        <>
+          <p className="mt-1 text-zinc-600 dark:text-zinc-400">Right now the assistant can only read this account. To create ads from approved campaigns, Meta needs your permission to manage ads and see your Pages. Ads are created paused, so nothing spends until you switch them on.</p>
+          <div className="mt-3"><Button variant="secondary" onClick={() => start.mutate()} disabled={start.isPending}>{start.isPending ? "Redirecting…" : "Allow posting"}</Button></div>
+          {start.error && <div className="mt-2"><ErrorBox error={start.error.message} /></div>}
+        </>
+      )}
+      {s.mode !== "live" && (
+        <p className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          Posting is switched off on the server, so approving only saves the copy. To switch it on, set <code>EXECUTION_MODE=live</code> in <code>apps/api/.env.local</code> and restart the API.
+        </p>
+      )}
+      <p className="mt-3 text-xs text-zinc-500">{s.google.reason}</p>
+    </div>
   );
 }
 

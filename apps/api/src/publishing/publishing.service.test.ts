@@ -153,13 +153,33 @@ describe("approving posts to Meta (paused) in live mode", () => {
     expect(actions.latestPublish("w", "ready")).toMatchObject({ id: r.action.id, status: "executed" });
   });
 
-  it("the same request cannot post twice", async () => {
-    const first = await propose({ campaignId: "ready", meta: META });
+  it("asking again after a successful post is refused, and nothing is posted twice", async () => {
+    await propose({ campaignId: "ready", meta: META });
     await approveLatest();
-    const again = await propose({ campaignId: "ready", meta: META });
-    expect(again.reused).toBe(true);
-    expect(again.action.id).toBe(first.action.id);
+    await expect(propose({ campaignId: "ready", meta: META })).rejects.toThrow(/already been posted to Meta/);
     expect(fake.published).toHaveLength(1);
+    expect(actions.list("w", "awaiting_approval")).toHaveLength(0); // no second request was even created
+  });
+
+  it("identical requests are one request, wherever they came from", async () => {
+    const a = await actions.propose("w", { type: "publish_campaign", payload: { campaignId: "ready", meta: META }, source: "campaign", sourceRef: "ready", requestedBy: "dashboard" } as never);
+    const b = await actions.propose("w", { type: "publish_campaign", payload: { campaignId: "ready", meta: META }, source: "manual", requestedBy: "someone else" } as never);
+    expect(b.reused).toBe(true);
+    expect(b.action.id).toBe(a.action.id);
+    expect(pending()).toHaveLength(1);
+  });
+
+  it("a campaign that has really been posted cannot be posted again, even with different settings or a request already waiting", async () => {
+    await propose({ campaignId: "ready", meta: META });
+    const waiting = await propose({ campaignId: "ready", meta: { ...META, dailyBudget: 30 } }); // a second, different request is waiting
+    expect(pending()).toHaveLength(2);
+    await inbox.decideApproval("w", pending().find((p) => (p.payload as any).actionId !== waiting.action.id)!.id, "approved", "me");
+    expect(fake.published).toHaveLength(1);
+
+    await expect(propose({ campaignId: "ready", meta: { ...META, dailyBudget: 20 } })).rejects.toThrow(/already been posted to Meta/); // refused up front
+    await inbox.decideApproval("w", pending()[0].id, "approved", "me"); // the one that was already waiting is refused when it runs
+    expect(actions.get("w", waiting.action.id)).toMatchObject({ status: "failed", result: { error: expect.stringContaining("already been posted") } });
+    expect(fake.published).toHaveLength(1); // never a second set of ads
   });
 
   it("a campaign with only Google copy needs no Meta settings and posts nothing", async () => {
