@@ -2,38 +2,31 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import type { Approval } from "@/lib/types";
 
 const LINKS = [
-  { href: "/", label: "Overview" },
+  { href: "/", label: "Home" },
   { href: "/campaigns", label: "Campaigns" },
-  { href: "/approvals", label: "Approvals" },
-  { href: "/tasks", label: "Tasks" },
-  { href: "/activity", label: "Activity" },
-  { href: "/company", label: "Company" },
-  { href: "/connections", label: "Connections" },
-  { href: "/schedules", label: "Schedules" },
-  { href: "/audit", label: "Audit log" },
+  { href: "/settings", label: "Settings" },
 ];
 
-export function Nav() {
+export function TopNav() {
   const path = usePathname();
-  const pending = useQuery({ queryKey: ["approvals", "pending"], queryFn: () => api<Approval[]>("/approvals?status=pending") });
-  const count = pending.data?.length ?? 0;
   return (
-    <nav className="flex gap-1 md:flex-col">
-      {LINKS.map((l) => {
-        const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
-        return (
-          <Link key={l.href} href={l.href}
-            className={`flex items-center justify-between rounded-md px-3 py-2 text-sm ${active ? "bg-zinc-200 font-medium dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"}`}>
-            {l.label}
-            {l.href === "/approvals" && count > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white">{count}</span>}
-          </Link>
-        );
-      })}
-    </nav>
+    <header className="border-b border-zinc-200 dark:border-zinc-800">
+      <div className="mx-auto flex max-w-3xl items-center gap-6 px-4 py-3">
+        <Link href="/" className="text-sm font-semibold tracking-tight">Marketing Agent</Link>
+        <nav className="flex gap-1" aria-label="Main">
+          {LINKS.map((l) => {
+            const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
+            return (
+              <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined}
+                className={`rounded-md px-3 py-1.5 text-sm ${active ? "bg-zinc-200 font-medium dark:bg-zinc-800" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"}`}>
+                {l.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+    </header>
   );
 }

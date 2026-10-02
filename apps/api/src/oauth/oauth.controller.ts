@@ -33,7 +33,7 @@ export class OAuthController {
     const web = (process.env.WEB_ORIGIN ?? "http://localhost:3000").replace(/\/$/, "");
     const r = await this.oauth.callback(provider, q);
     const params = new URLSearchParams(r.ok ? { connected: provider, connection: r.connectionId, ...(r.pending ? { pending: "1" } : {}) } : { oauth_error: r.code });
-    res.redirect(`${web}/connections?${params}`);
+    res.redirect(`${web}/settings?${params}`);
   }
 
   @Get("connections/:id/accounts")

@@ -33,11 +33,16 @@ Other scripts: `pnpm test`, `pnpm typecheck`. After changing `packages/shared`, 
 
 Optional: Redis enables schedules and background jobs. Set `REDIS_URL=redis://localhost:6379` for the API. Without it the API still runs, and the Schedules page explains that jobs are disabled.
 
-### First-time setup
+### What you see
 
-The first thing you see at http://localhost:3000 is **only a company form** (no sidebar, no reports): company name, products, audiences, brand voice, the claims you may make, phrases to avoid, and your website. Save it and the home page becomes the Overview. Edit it any time under **Company** in the sidebar.
+The app has three screens and a top bar: **Home**, **Campaigns**, **Settings**.
 
-This is the information the assistant actually works from: drafts are written in your voice about your products, and every draft is checked against your approved claims, banned phrases and allowed link domains. Saving writes exactly what the form shows (items you remove are deleted), and new drafts use it immediately. If sample data is loaded, the form is pre-filled with sample details and says so; replace them with your own.
+- **First time:** the home page is *only* a company form (name, products, audiences, brand voice, claims you may make, phrases to avoid, your website). Save it and Home becomes the overview. The assistant works from this: drafts are written in your voice about your products, and every draft is checked against your approved claims, banned phrases and allowed link domains. Saving writes exactly what the form shows, and new drafts use it immediately.
+- **Home:** four headline numbers (compared with the previous week), "what to do next" (up to three recommendations, each with an *Add to my to-do list* button), your to-do list, and one-line notices (a campaign waiting for approval, an account to reconnect, sample data).
+- **Campaigns:** a plain list. *New campaign* asks four things (goal, product, audience, where) and writes a draft. Review the copy, edit or remove anything, then press **Approve campaign**. Approved copy is shown with Copy buttons: the app does not post anything for you yet.
+- **Settings:** your accounts (Google Analytics, Meta Ads; sign in to connect) and your company details. Old links such as `/connections` and `/approvals` redirect here or to Campaigns.
+
+The backend is richer than the screens: approvals, agent actions in shadow mode, schedules and the audit log all still exist behind the API, and screens for them can be added back.
 
 ### Run everything with Docker
 
@@ -185,7 +190,7 @@ When you deploy, set `API_PUBLIC_URL` to your HTTPS URL and update the redirect 
 
 ## Actions and shadow mode
 
-The agent can propose things to *do*, not just things to read. Everything goes through one gate, the **Approvals** inbox, and every action is kept on the **Activity** page.
+The agent can propose things to *do*, not just things to read. Everything goes through one gate: the approvals system. Every action is recorded (`GET /actions`). *The dashboard was simplified to three screens, so today it only exposes "Add to my to-do list"; pausing, budget changes, launch packages and email scheduling work through the API and can be given screens again.*
 
 | Action | Where it comes from | Approval | What happens today |
 |---|---|---|---|

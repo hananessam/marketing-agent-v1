@@ -7,9 +7,20 @@ import { useState } from "react";
 import { ApiError, api, errorDetails } from "@/lib/api";
 import { friendlyIssue, label } from "@/lib/format";
 import type { Asset, CampaignDetail } from "@/lib/types";
-import { usePropose, ProposeOutcome } from "@/components/action-buttons";
 import { CampaignPerformanceView } from "@/components/campaign-performance";
-import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass, statusTone } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass } from "@/components/ui";
+
+const KIND: Record<string, string> = {
+  email_subject: "Subject line", email_body: "Email", ad_headline: "Headline", ad_description: "Description",
+  social_post: "Post", landing_copy: "Page copy", cta: "Button",
+};
+const CHANNEL: Record<string, string> = { email: "Email", google_ads: "Google Ads", meta_ads: "Facebook & Instagram", linkedin: "LinkedIn", blog: "Blog" };
+
+function group(assets: Asset[]) {
+  const out = new Map<string, Asset[]>();
+  for (const a of assets) out.set(a.variant.split(":")[0], [...(out.get(a.variant.split(":")[0]) ?? []), a]);
+  return out;
+}
 
 export default function CampaignPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,175 +30,82 @@ export default function CampaignPage() {
   if (q.error instanceof ApiError && q.error.status === 404) {
     return (
       <Card title="This campaign doesn't exist">
-        <p className="text-sm text-zinc-500">The link may be old, or the campaign was removed. Your other campaigns are all still there.</p>
-        <div className="mt-4 flex gap-2">
-          <Link href="/campaigns" className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">See all campaigns</Link>
-          <Link href="/campaigns/new" className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Create a new campaign</Link>
-        </div>
+        <p className="text-sm text-zinc-500">The link may be old, or the campaign was removed.</p>
+        <div className="mt-4"><Link href="/campaigns" className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">See all campaigns</Link></div>
       </Card>
     );
   }
   if (q.error) return <ErrorBox error={q.error.message} />;
   const c = q.data!;
-  // Campaigns that were not drafted here (sample data, or synced from Meta / Google) have no brief, plan or copy.
+  // Sample data and campaigns synced from Meta or Google have no drafted copy: show how they are doing instead.
   if (!c.brief && !c.plan && c.assets.length === 0) return <CampaignPerformanceView id={id} />;
-  const approval = c.approval;
-  const editable = c.status === "draft";
+  return c.status === "approved" ? <Approved c={c} /> : <Draft c={c} id={id} />;
+}
 
-  // group: channel -> kind -> assets
-  const groups = new Map<string, Map<string, Asset[]>>();
-  for (const a of c.assets) {
-    const [channel] = a.variant.split(":");
-    const byKind = groups.get(channel) ?? new Map<string, Asset[]>();
-    byKind.set(a.kind, [...(byKind.get(a.kind) ?? []), a]);
-    groups.set(channel, byKind);
-  }
-  const undecided = c.assets.filter((a) => a.status === "draft").length;
-  const flawed = c.assets.filter((a) => a.issues.length > 0 && a.status !== "rejected").length;
+// ------------------------------------------------------------------ reviewing a draft
+
+function Draft({ c, id }: { c: CampaignDetail; id: string }) {
+  const qc = useQueryClient();
+  const live = c.assets.filter((a) => a.status !== "rejected"); // removed copy is simply hidden
+  const flawed = live.filter((a) => a.issues.length > 0).length;
+
+  const approve = useMutation({
+    mutationFn: async () => {
+      for (const a of live.filter((x) => x.status === "draft")) await api(`/campaigns/${id}/assets/${a.id}/review`, { method: "POST", body: { decision: "approved" } });
+      // After an earlier rejection there is no open request: open a fresh one, then approve it.
+      const approvalId = c.approval?.status === "pending" ? c.approval.id : (await api<{ approvalId: string }>(`/campaigns/${id}/request-approval`, { method: "POST" })).approvalId;
+      await api(`/approvals/${approvalId}/decision`, { method: "POST", body: { decision: "approved", decidedBy: "You" } });
+    },
+    onSettled: () => { qc.invalidateQueries({ queryKey: ["campaign", id] }); qc.invalidateQueries({ queryKey: ["campaigns"] }); },
+  });
 
   return (
-    <div className="space-y-4">
-      <PageHeader title={c.name} subtitle={c.brief ? `Objective: ${c.brief.objective} · ${c.brief.durationDays} days · audience: ${c.brief.audience}` : undefined}
-        actions={<Badge tone={statusTone(c.status)}>{c.status}</Badge>} />
+    <div className="space-y-5">
+      <Link href="/campaigns" className="text-sm text-zinc-500 underline">← All campaigns</Link>
+      <PageHeader title={c.name} actions={<Badge tone="warn">Draft</Badge>} />
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        Read the copy below. Edit anything you don&apos;t like and remove what you don&apos;t want, then approve it.
+        {c.plan && <> The idea behind it: <span className="italic">{c.plan.keyMessage}</span></>}
+      </p>
 
-      {flawed > 0 && editable && (
-        <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/40">
-          {flawed} {flawed === 1 ? "piece of copy needs" : "pieces of copy need"} a quick fix before {flawed === 1 ? "it" : "they"} can be approved, usually a headline that is a few characters too long. Click Edit on the highlighted ones, or reject them.
-        </p>
-      )}
-
-      {approval && approval.status === "pending" && (
-        <Card>
-          <p className="text-sm">
-            {undecided > 0 ? `${undecided} asset(s) still need your review.` : "All assets reviewed."}{" "}
-            <Link href="/approvals" className="font-medium underline">Decide in the approvals inbox</Link>. Approving does not publish anything.
-          </p>
-        </Card>
-      )}
-      {approval?.status === "approved" && <p className="text-sm text-zinc-500">Approved{approval.decidedBy ? ` by ${approval.decidedBy}` : ""}. The copy is now locked.</p>}
-      {approval?.status === "rejected" && <RejectedBanner campaignId={id} approval={approval} />}
-
-      {c.status === "approved" && <LaunchCard campaignId={id} hasEmail={c.assets.some((a) => a.status === "approved" && a.variant.startsWith("email:"))} />}
-
-      {c.plan && (
-      <Card title="Plan">
-        <p className="text-sm"><span className="font-medium">Positioning:</span> {c.plan.positioning}</p>
-        <p className="mt-2 text-sm"><span className="font-medium">Key message:</span> {c.plan.keyMessage}</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {c.plan.channels.map((ch) => (
-            <div key={ch.name} className="rounded-md border border-zinc-200 p-3 text-sm dark:border-zinc-800">
-              <p className="font-medium">{label(ch.name)}</p>
-              <p className="text-zinc-600 dark:text-zinc-400">{ch.role}</p>
-              <p className="mt-1 text-xs text-zinc-500">Success metrics: {ch.successMetrics.join(", ")}</p>
-            </div>
-          ))}
-        </div>
-        {c.experiments.length > 0 && (
-          <div className="mt-3 text-sm">
-            <p className="font-medium">Experiments</p>
-            <ul className="list-disc pl-5">{c.experiments.map((e) => <li key={e.id}>{e.hypothesis} <span className="text-zinc-500">(variable: {e.variable})</span></li>)}</ul>
-          </div>
-        )}
-        {c.plan.risks.length > 0 && <p className="mt-3 text-sm"><span className="font-medium">Risks:</span> {c.plan.risks.join("; ")}</p>}
-      </Card>
-      )}
-
-      {[...groups].map(([channel, kinds]) => (
-        <Card key={channel} title={label(channel)}>
-          <div className="space-y-5">
-            {[...kinds].map(([kind, assets]) => (
-              <div key={kind}>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label(kind)}</p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {assets.map((a) => <AssetCard key={a.id} campaignId={id} asset={a} editable={editable} />)}
-                </div>
-              </div>
-            ))}
-          </div>
+      {[...group(live)].map(([channel, assets]) => (
+        <Card key={channel} title={CHANNEL[channel] ?? label(channel)}>
+          <ul className="space-y-4">
+            {assets.map((a) => <AssetRow key={a.id} campaignId={id} asset={a} />)}
+          </ul>
         </Card>
       ))}
-    </div>
-  );
-}
+      {live.length === 0 && <Card><Empty>You removed all the copy. Go back and create a new campaign.</Empty></Card>}
 
-function LaunchCard({ campaignId, hasEmail }: { campaignId: string; hasEmail: boolean }) {
-  const publish = usePropose();
-  const schedule = usePropose();
-  const [when, setWhen] = useState("");
-  return (
-    <Card title="Launch">
-      <p className="text-sm text-zinc-500">
-        This campaign is approved. The app can&apos;t post to ad accounts or send email yet, so launching is recorded in <span className="font-medium">shadow mode</span>:
-        you approve it, and the app records exactly what would have been published, with the copy ready to paste.
-      </p>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button onClick={() => publish.mutate({ type: "publish_campaign", source: "campaign", sourceRef: campaignId, payload: { campaignId } })} disabled={publish.isPending}>Prepare launch package</Button>
+      <div className="sticky bottom-0 -mx-4 border-t border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
+        {flawed > 0 && <p className="mb-2 text-sm text-amber-700 dark:text-amber-400">{flawed === 1 ? "One piece of copy needs" : `${flawed} pieces of copy need`} a quick fix before you can approve. They are highlighted above.</p>}
+        {approve.error && <div className="mb-2"><ErrorBox error={approve.error.message} details={errorDetails(approve.error)} /></div>}
+        <Button onClick={() => approve.mutate()} disabled={approve.isPending || flawed > 0 || live.length === 0}>{approve.isPending ? "Approving…" : "Approve campaign"}</Button>
+        <span className="ml-3 text-xs text-zinc-500">Nothing is published or sent.</span>
       </div>
-      {publish.error && <div className="mt-2"><ErrorBox error={publish.error.message} /></div>}
-      {publish.data && <div className="mt-2"><ProposeOutcome result={publish.data} /></div>}
-
-      {hasEmail && (
-        <div className="mt-5 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-          <p className="text-sm font-medium">Schedule the email</p>
-          <div className="mt-2 flex flex-wrap items-end gap-2">
-            <label className="text-sm"><span className="mb-1 block text-xs font-medium text-zinc-500">Send at (your time)</span>
-              <input type="datetime-local" className={inputClass} value={when} onChange={(e) => setWhen(e.target.value)} /></label>
-            <Button variant="secondary" disabled={!when || schedule.isPending}
-              onClick={() => schedule.mutate({ type: "schedule_email", source: "campaign", sourceRef: `${campaignId}:${when}`, payload: { campaignId, sendAt: new Date(when).toISOString() } })}>Send for approval</Button>
-          </div>
-          {schedule.error && <div className="mt-2"><ErrorBox error={schedule.error.message} /></div>}
-          {schedule.data && <div className="mt-2"><ProposeOutcome result={schedule.data} /></div>}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function RejectedBanner({ campaignId, approval }: { campaignId: string; approval: NonNullable<CampaignDetail["approval"]> }) {
-  const qc = useQueryClient();
-  const again = useMutation({
-    mutationFn: () => api(`/campaigns/${campaignId}/request-approval`, { method: "POST" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["campaign", campaignId] });
-      qc.invalidateQueries({ queryKey: ["approvals"] });
-    },
-  });
-  return (
-    <div role="status" className="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/40">
-      <p className="text-sm font-medium">This campaign was rejected{approval.decidedBy ? ` by ${approval.decidedBy}` : ""}.</p>
-      {approval.note && <p className="mt-1 text-sm">Reason: {approval.note}</p>}
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">It is still a draft. Edit or reject the copy below, review each piece again, then send it for approval again.</p>
-      {again.error && <div className="mt-2"><ErrorBox error={again.error.message} /></div>}
-      <div className="mt-3"><Button onClick={() => again.mutate()} disabled={again.isPending}>{again.isPending ? "Sending…" : "Request approval again"}</Button></div>
     </div>
   );
 }
 
-function AssetCard({ campaignId, asset, editable }: { campaignId: string; asset: Asset; editable: boolean }) {
+function AssetRow({ campaignId, asset }: { campaignId: string; asset: Asset }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(asset.content);
   const refresh = () => qc.invalidateQueries({ queryKey: ["campaign", campaignId] });
 
-  const review = useMutation({
-    mutationFn: (decision: "approved" | "rejected") => api(`/campaigns/${campaignId}/assets/${asset.id}/review`, { method: "POST", body: { decision } }),
-    onSuccess: refresh,
-  });
+  const remove = useMutation({ mutationFn: () => api(`/campaigns/${campaignId}/assets/${asset.id}/review`, { method: "POST", body: { decision: "rejected" } }), onSuccess: refresh });
   const save = useMutation({
     mutationFn: () => api(`/campaigns/${campaignId}/assets/${asset.id}`, { method: "PATCH", body: { content: text } }),
     onSuccess: () => { setEditing(false); refresh(); },
   });
-  const [, variant] = asset.variant.split(":");
+  const over = asset.maxLength !== null && asset.content.length > asset.maxLength;
 
   return (
-    <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-medium text-zinc-500">Variant {variant}</span>
-        <Badge tone={statusTone(asset.status)}>{asset.status}</Badge>
-      </div>
+    <li>
+      <p className="mb-1 text-xs font-medium text-zinc-500">{KIND[asset.kind] ?? label(asset.kind)} · version {asset.variant.split(":")[1]}</p>
       {editing ? (
         <>
-          <textarea aria-label="Edit copy" rows={5} className={inputClass} value={text} onChange={(e) => setText(e.target.value)} />
+          <textarea aria-label="Edit copy" rows={4} className={inputClass} value={text} onChange={(e) => setText(e.target.value)} />
           {save.error && <div className="mt-2"><ErrorBox error={save.error.message} details={errorDetails(save.error)} /></div>}
           <div className="mt-2 flex gap-2">
             <Button onClick={() => save.mutate()} disabled={save.isPending || !text.trim() || text === asset.content}>{save.isPending ? "Checking…" : "Save"}</Button>
@@ -197,24 +115,53 @@ function AssetCard({ campaignId, asset, editable }: { campaignId: string; asset:
       ) : (
         <>
           <p className="whitespace-pre-wrap text-sm">{asset.content}</p>
-          <p className={`mt-1 text-xs ${asset.maxLength && asset.content.length > asset.maxLength ? "font-medium text-red-600 dark:text-red-400" : "text-zinc-500"}`}>
-            {asset.content.length}{asset.maxLength ? ` / ${asset.maxLength}` : ""} characters
-          </p>
+          {asset.maxLength !== null && <p className={`mt-1 text-xs ${over ? "font-medium text-red-600 dark:text-red-400" : "text-zinc-500"}`}>{asset.content.length} / {asset.maxLength} characters</p>}
           {asset.issues.length > 0 && (
             <ul className="mt-2 space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               {asset.issues.map((i, n) => <li key={n}>{friendlyIssue(i)}</li>)}
             </ul>
           )}
-          {review.error && <div className="mt-2"><ErrorBox error={review.error.message} /></div>}
-          {editable && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" disabled={review.isPending || asset.status === "approved" || asset.issues.length > 0} title={asset.issues.length ? "Fix the problem above first" : undefined} onClick={() => review.mutate("approved")}>Approve</Button>
-              <Button variant="danger" disabled={review.isPending || asset.status === "rejected"} onClick={() => review.mutate("rejected")}>Reject</Button>
-              <Button variant="secondary" onClick={() => setEditing(true)}>Edit</Button>
-            </div>
-          )}
+          {remove.error && <div className="mt-2"><ErrorBox error={remove.error.message} /></div>}
+          <div className="mt-2 flex gap-3 text-sm">
+            <button onClick={() => setEditing(true)} className="underline">Edit</button>
+            <button onClick={() => remove.mutate()} disabled={remove.isPending} className="text-zinc-500 underline">Remove</button>
+          </div>
         </>
       )}
+    </li>
+  );
+}
+
+// ------------------------------------------------------------------ approved: the finished copy
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button className="text-xs underline" onClick={async () => { try { await navigator.clipboard.writeText(text); setCopied(true); } catch { /* clipboard blocked: the text is selectable */ } }}>
+      {copied ? "Copied ✓" : "Copy"}
+    </button>
+  );
+}
+
+function Approved({ c }: { c: CampaignDetail }) {
+  const items = c.assets.filter((a) => a.status === "approved");
+  return (
+    <div className="space-y-5">
+      <Link href="/campaigns" className="text-sm text-zinc-500 underline">← All campaigns</Link>
+      <PageHeader title={c.name} actions={<Badge tone="good">Approved</Badge>} />
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">Your copy is approved and ready to use. The app doesn&apos;t post it for you yet, so copy it into each tool.</p>
+      {[...group(items)].map(([channel, assets]) => (
+        <Card key={channel} title={CHANNEL[channel] ?? label(channel)}>
+          <ul className="space-y-4">
+            {assets.map((a) => (
+              <li key={a.id}>
+                <div className="flex items-center justify-between"><p className="text-xs font-medium text-zinc-500">{KIND[a.kind] ?? label(a.kind)} · version {a.variant.split(":")[1]}</p><CopyButton text={a.content} /></div>
+                <p className="mt-1 whitespace-pre-wrap text-sm">{a.content}</p>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ))}
     </div>
   );
 }

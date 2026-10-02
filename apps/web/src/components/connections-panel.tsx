@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { api } from "@/lib/api";
 import type { Account, Connection, OAuthStatus, Provider, SyncOutcome } from "@/lib/types";
-import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass, statusTone, type Tone } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, inputClass, statusTone, type Tone } from "@/components/ui";
 
 const PROVIDERS: { provider: Provider; slug: "google" | "meta"; title: string; blurb: string; env: string }[] = [
   { provider: "ga4", slug: "google", title: "Google Analytics 4", blurb: "Sessions, key events and revenue per campaign. Read-only.", env: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET" },
@@ -18,17 +18,11 @@ const OAUTH_ERRORS: Record<string, string> = {
   exchange_failed: "The provider rejected the sign-in. Please try again; if it keeps failing, check the server's client id and secret.",
   not_configured: "This provider is not configured on the server.",
 };
-/** "30 5 * * *" -> "daily at 05:30 UTC"; anything else is shown as the raw cron. */
-function describeSchedule(a: { cron: string; timezone: string }) {
-  const m = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(a.cron);
-  return m ? `daily at ${m[2].padStart(2, "0")}:${m[1].padStart(2, "0")} ${a.timezone}` : `${a.cron} (${a.timezone})`;
-}
-const STALE_HOURS = 36;
 
 const STATUS_TONE: Record<Connection["status"], Tone> = { ok: "good", needs_reauth: "bad", error: "bad", never_synced: "warn", pending_account: "warn" };
 const STATUS_LABEL: Record<Connection["status"], string> = { ok: "connected", needs_reauth: "needs reconnect", error: "sync error", never_synced: "not synced yet", pending_account: "choose account" };
 
-export default function ConnectionsPage() {
+export function ConnectionsPanel() {
   return (
     <Suspense fallback={<Empty>Loading…</Empty>}>
       <Connections />
@@ -44,7 +38,7 @@ function Connections() {
 
   return (
     <>
-      <PageHeader title="Connections" subtitle="Link your accounts with a normal sign-in. We only ask for read access, and tokens are stored encrypted." />
+      <p className="mb-4 text-sm text-zinc-500">Sign in to your accounts so the assistant can read your numbers. It only asks for read access: it can never change anything in them.</p>
       {oauthError && <div className="mb-4"><ErrorBox error={OAUTH_ERRORS[oauthError] ?? "The connection could not be completed."} /></div>}
       {params.get("connected") && !params.get("pending") && <p className="mb-4 text-sm text-emerald-600 dark:text-emerald-400">Signed in again. Run “Sync now” to pull fresh data.</p>}
       {conns.error && <div className="mb-4"><ErrorBox error={conns.error.message} /></div>}
@@ -98,15 +92,12 @@ function ConnectionRow({ c, slug }: { c: Connection; slug: "google" | "meta" }) 
   const daysLeft = c.tokenExpiresAt ? Math.ceil((Date.parse(c.tokenExpiresAt) - now) / 86_400_000) : null;
   const expiring = daysLeft !== null && daysLeft <= 10;
   const s = c.lastSummary;
-  const hoursSince = c.lastSyncAt ? Math.floor((now - Date.parse(c.lastSyncAt)) / 3_600_000) : null;
-  const stale = c.status === "ok" && hoursSince !== null && hoursSince >= STALE_HOURS;
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{c.accountName ?? (c.status === "pending_account" ? "New connection" : c.accountId)}</span>
         <Badge tone={STATUS_TONE[c.status] ?? statusTone(c.status)}>{STATUS_LABEL[c.status]}</Badge>
-        {stale && <Badge tone="warn">data may be stale ({Math.floor(hoursSince! / 24)}d old)</Badge>}
         {expiring && <Badge tone={daysLeft! <= 0 ? "bad" : "warn"}>{daysLeft! <= 0 ? "token expired" : `token expires in ${daysLeft} day(s)`}</Badge>}
         <span className="grow" />
         {c.status !== "pending_account" && <Button variant="secondary" disabled={sync.isPending || c.status === "needs_reauth"} onClick={() => sync.mutate()}>{sync.isPending ? "Syncing…" : "Sync now"}</Button>}
@@ -128,15 +119,9 @@ function ConnectionRow({ c, slug }: { c: Connection; slug: "google" | "meta" }) 
       {sync.data?.status === "failed" && <div className="mt-2"><ErrorBox error={sync.data.error} /></div>}
       {sync.error && <div className="mt-2"><ErrorBox error={sync.error.message} /></div>}
       {remove.error && <div className="mt-2"><ErrorBox error={remove.error.message} /></div>}
-      {c.status !== "pending_account" && (
+      {c.status === "ok" && c.lastSyncAt && (
         <p className="mt-1 text-xs text-zinc-500">
-          {c.autoSync ? `Syncs automatically ${describeSchedule(c.autoSync)}.` : "Automatic sync is off: start Redis and set REDIS_URL on the server to enable it."}
-        </p>
-      )}
-      {c.status === "ok" && s && (
-        <p className="mt-1 text-xs text-zinc-500">
-          Last sync {c.lastSyncAt ? new Date(c.lastSyncAt).toLocaleString() : ""}: {s.campaigns} campaign(s), {s.rows} daily row(s), {s.range.startDate} → {s.range.endDate}
-          {Object.keys(s.skipped).length > 0 && ` · skipped ${Object.entries(s.skipped).map(([k, n]) => `${n} ${k.replace(/_/g, " ")}`).join(", ")}`}
+          Updated {new Date(c.lastSyncAt).toLocaleString()}{s && s.rows === 0 ? ". No data found yet in this account." : ""}
         </p>
       )}
     </div>

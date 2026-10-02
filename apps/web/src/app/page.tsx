@@ -1,16 +1,16 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { humanize, timeAgo } from "@/lib/format";
-import type { AnalyticsOutput, AnalyticsRun, Approval, Campaign, Company, Connection } from "@/lib/types";
-import { Attention, CampaignTable, Changes, DataIssues, GettingStarted, Headline, NextSteps, periodLabel, type AttentionItem } from "@/components/home-parts";
+import type { AnalyticsOutput, AnalyticsRun, Campaign, Company, Connection, ProposeResult, Recommendation, Task } from "@/lib/types";
 import { CompanyForm } from "@/components/company-form";
+import { Tile } from "@/components/tile";
 import { Button, Card, Empty, ErrorBox, PageHeader } from "@/components/ui";
 
 const PROVIDER_NAME = { ga4: "Google Analytics", meta_ads: "Meta Ads" } as const;
-const STALE_DAYS = 2;
 
 /** First run: the home page is only the company form. Once it is saved, the home page is the Overview. */
 export default function HomePage() {
@@ -18,7 +18,7 @@ export default function HomePage() {
   if (company.isLoading) return null; // the frame shows the loading state
   if (company.error) return <ErrorBox error={company.error.message} />;
   if (company.data && !company.data.onboarded) return <Onboarding company={company.data} />;
-  return <Overview />;
+  return <Home />;
 }
 
 function Onboarding({ company }: { company: Company }) {
@@ -33,155 +33,152 @@ function Onboarding({ company }: { company: Company }) {
   );
 }
 
-function Overview() {
+function Home() {
   const qc = useQueryClient();
-  const [days, setDays] = useState(7);
   const [now] = useState(() => Date.now()); // fixed at mount so rendering stays pure
 
   const runs = useQuery({ queryKey: ["analytics-runs"], queryFn: () => api<AnalyticsRun[]>("/analytics/runs") });
-  const approvals = useQuery({ queryKey: ["approvals", "pending"], queryFn: () => api<Approval[]>("/approvals?status=pending") });
-  const connections = useQuery({ queryKey: ["connections"], queryFn: () => api<Connection[]>("/connections").catch(() => [] as Connection[]) });
   const campaigns = useQuery({ queryKey: ["campaigns"], queryFn: () => api<Campaign[]>("/campaigns") });
+  const connections = useQuery({ queryKey: ["connections"], queryFn: () => api<Connection[]>("/connections").catch(() => [] as Connection[]) });
 
   const run = useMutation({
-    mutationFn: () => api<{ runId: string; status: string; reused: boolean; output: AnalyticsOutput }>("/analytics/run", { method: "POST", body: { days } }),
+    mutationFn: () => api<{ status: string; output: AnalyticsOutput }>("/analytics/run", { method: "POST", body: { days: 7 } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["analytics-runs"] }),
   });
-
   const latest = runs.data?.find((r) => r.status === "succeeded");
   const failed = run.data?.status === "failed" ? run.data : null;
-  const loading = runs.isLoading;
+
+  const notices = notesFor(campaigns.data ?? [], connections.data ?? []);
 
   return (
     <>
-      <PageHeader
-        title="Overview"
-        subtitle="How your marketing is doing, what changed, and what to do next."
-        actions={
-          <div className="flex items-center gap-2">
-            <label className="sr-only" htmlFor="period">Compare</label>
-            <select id="period" value={days} onChange={(e) => setDays(Number(e.target.value))}
-              className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950">
-              <option value={7}>Last 7 days</option>
-              <option value={14}>Last 14 days</option>
-            </select>
-            <Button onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? "Analyzing…" : latest ? "Refresh analysis" : "Run analysis"}</Button>
-          </div>
-        }
-      />
+      <PageHeader title="Home" actions={<Button onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? "Checking your numbers…" : latest ? "Refresh" : "Check my numbers"}</Button>} />
 
-      {run.isPending && (
-        <div role="status" className="mb-4 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm dark:border-blue-900 dark:bg-blue-950/40">
-          Analyzing your campaigns. This usually takes 15 to 30 seconds. You can keep this page open.
-        </div>
+      {notices.length > 0 && (
+        <ul className="mb-5 space-y-2">
+          {notices.map((n) => (
+            <li key={n.text} className="flex items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+              <span>{n.text}</span><Link href={n.href} className="shrink-0 font-medium underline">{n.cta}</Link>
+            </li>
+          ))}
+        </ul>
       )}
+
       {run.error && <div className="mb-4"><ErrorBox error={run.error.message} /></div>}
-      {run.data?.reused && <p className="mb-4 text-sm text-zinc-500">You already ran this comparison, so we showed the saved result instead of running it again.</p>}
-      {failed && <div className="mb-4"><ErrorBox error="We couldn't finish the analysis." details={failureDetails(failed.output)} /></div>}
-      {runs.error && <ErrorBox error={runs.error.message} />}
-      {loading && <Empty>Loading…</Empty>}
+      {failed && <div className="mb-4"><ErrorBox error="We couldn't check your numbers just now. Please try again." details={[failed.output.error, failed.output.note].filter((x): x is string => Boolean(x))} /></div>}
+      {runs.isLoading && <Empty>Loading…</Empty>}
 
       {runs.data && !latest && !run.isPending && (
-        <GettingStarted hasConnections={(connections.data ?? []).length > 0} running={run.isPending} onRun={() => run.mutate()} />
+        <Card title="Ready when you are">
+          <p className="text-sm text-zinc-500">We compare your last week with the week before and tell you what to do next. To use your own numbers, connect your accounts in <Link href="/settings" className="underline">Settings</Link>.</p>
+          <div className="mt-4"><Button onClick={() => run.mutate()}>Check my numbers</Button></div>
+        </Card>
       )}
 
-      {latest && (
-        <Report
-          run={latest} now={now}
-          attention={attentionItems({ latest, approvals: approvals.data, connections: connections.data, campaigns: campaigns.data, now })}
-          campaigns={campaigns.data ?? []}
-        />
-      )}
+      {latest && <Report run={latest} now={now} campaigns={campaigns.data ?? []} />}
+      <Todo />
     </>
   );
 }
 
-function failureDetails(o: AnalyticsOutput): string[] {
-  const notes = [o.error, o.note, ...(o.errors ?? [])].filter((x): x is string => Boolean(x));
-  return notes.length ? notes : ["Please try again in a moment."];
+function notesFor(campaigns: Campaign[], connections: Connection[]) {
+  const out: { text: string; href: string; cta: string }[] = [];
+  const waiting = campaigns.filter((c) => c.source === "manual" && c.status === "draft").length;
+  if (waiting > 0) out.push({ text: `${waiting} ${waiting === 1 ? "campaign is" : "campaigns are"} waiting for your approval.`, href: "/campaigns", cta: "Review" });
+  for (const c of connections) {
+    if (c.status === "needs_reauth" || c.status === "error") out.push({ text: `${PROVIDER_NAME[c.provider]} needs to be reconnected.`, href: "/settings", cta: "Fix" });
+  }
+  if (campaigns.some((c) => c.source === "seed")) out.push({ text: "You are looking at sample data.", href: "/settings", cta: "Use my own" });
+  return out.slice(0, 3);
 }
 
-function attentionItems(a: { latest: AnalyticsRun; approvals?: Approval[]; connections?: Connection[]; campaigns?: Campaign[]; now: number }): AttentionItem[] {
-  const items: AttentionItem[] = [];
-  const pending = a.approvals?.length ?? 0;
-  if (pending > 0) items.push({ key: "approvals", tone: "warn", title: `${pending} ${pending === 1 ? "approval is" : "approvals are"} waiting for you`, detail: "Nothing is published or spent until you decide.", href: "/approvals", cta: "Review" });
-
-  for (const c of a.connections ?? []) {
-    if (c.status === "needs_reauth" || c.status === "error") {
-      items.push({ key: `conn-${c.id}`, tone: "bad", title: `${PROVIDER_NAME[c.provider]} needs attention`, detail: c.status === "needs_reauth" ? "Access expired or was removed, so new data is not coming in." : "The last data refresh failed.", href: "/connections", cta: c.status === "needs_reauth" ? "Reconnect" : "Fix" });
-    }
-  }
-
-  if (a.campaigns?.some((c) => c.source === "seed")) {
-    items.push({ key: "demo", tone: "info", title: "You are looking at sample data", detail: (a.connections ?? []).length ? "Remove the sample campaigns once your own data has arrived." : "Connect your own accounts to see your real campaigns here.", href: "/connections", cta: (a.connections ?? []).length ? "Manage" : "Connect accounts" });
-  }
-
-  const issues = a.latest.output.dataQualityIssues.length;
-  if (issues > 0) items.push({ key: "quality", tone: "warn", title: `Some of your data is incomplete (${issues} ${issues === 1 ? "issue" : "issues"})`, detail: "Changes on those campaigns are marked as unconfirmed. Details are further down." });
-
-  const ageDays = (a.now - Date.parse(a.latest.createdAt)) / 86_400_000;
-  if (ageDays >= STALE_DAYS) items.push({ key: "stale", tone: "warn", title: `This analysis is ${Math.floor(ageDays)} days old`, detail: "Press “Refresh analysis” for up-to-date numbers." });
-
-  if (items.length === 0) items.push({ key: "clear", tone: "good", title: "All clear", detail: "Nothing needs your attention right now." });
-  return items;
-}
-
-function Report({ run, now, attention, campaigns }: { run: AnalyticsRun; now: number; attention: AttentionItem[]; campaigns: Campaign[] }) {
+function Report({ run, now, campaigns }: { run: AnalyticsRun; now: number; campaigns: Campaign[] }) {
   const o = run.output;
   const names = new Map(o.facts.map((f) => [f.campaignId, f.name]));
   const source = new Map(campaigns.map((c) => [c.id, c.source]));
-  // GA4 rows describe website visits, not ad spend; adding them to paid totals would double count.
+  // Google Analytics rows describe website visits, not ad spend: adding them to paid totals would double count.
   const paid = o.facts.filter((f) => source.get(f.campaignId) !== "ga4");
-  const days = Math.round((Date.parse(o.periods.current.endDate) - Date.parse(o.periods.current.startDate)) / 86_400_000) + 1;
-  const report = o.report;
+  const sum = (p: "current" | "previous", m: "spend" | "conversions" | "revenue") => paid.reduce((t, f) => t + (f[p][m] ?? 0), 0);
+  const cur = { spend: sum("current", "spend"), conversions: sum("current", "conversions"), revenue: sum("current", "revenue") };
+  const prev = { spend: sum("previous", "spend"), conversions: sum("previous", "conversions"), revenue: sum("previous", "revenue") };
+  const roas = (t: typeof cur) => (t.spend ? t.revenue / t.spend : null);
+  const change = (a: number | null, b: number | null) => (a === null || b === null || b === 0 ? null : (a - b) / b);
+  const incomplete = o.dataQualityIssues.length > 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <p className="text-sm text-zinc-500">
-        {periodLabel(o.periods)} · analysis from {timeAgo(run.createdAt, now)}
+        Last 7 days compared with the 7 before · updated {timeAgo(run.createdAt, now)}{incomplete ? " · some data is incomplete, so treat the changes with care" : ""}
       </p>
 
-      <Attention items={attention} />
-
-      {paid.length > 0 && <Headline facts={paid} days={days} />}
-
-      {report && (
-        <>
-          <Card title="In short">
-            <p className="text-sm leading-relaxed">{humanize(report.summary, names)}</p>
-            {report.caveats.length > 0 && (
-              <details className="mt-3 text-sm">
-                <summary className="cursor-pointer text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">Things to keep in mind</summary>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-zinc-600 dark:text-zinc-400">{report.caveats.map((c, i) => <li key={i}>{humanize(c, names)}</li>)}</ul>
-              </details>
-            )}
-          </Card>
-
-          <Card title="What to do next">
-            <NextSteps recs={report.recommendations} names={names} runId={run.id} />
-          </Card>
-        </>
+      {paid.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Tile metric="spend" value={cur.spend} delta={change(cur.spend, prev.spend)} goodWhen="neutral" />
+          <Tile metric="conversions" value={cur.conversions} delta={change(cur.conversions, prev.conversions)} goodWhen="up" />
+          <Tile metric="revenue" value={cur.revenue} delta={change(cur.revenue, prev.revenue)} goodWhen="up" />
+          <Tile metric="roas" value={roas(cur)} delta={change(roas(cur), roas(prev))} goodWhen="up" />
+        </div>
       )}
 
-      {o.anomalies.length > 0 && (
-        <Card title="What changed">
-          <Changes items={o.anomalies} names={names} />
-        </Card>
+      {o.report && (
+        <section aria-labelledby="next">
+          <h2 id="next" className="mb-3 text-lg font-semibold">What to do next</h2>
+          <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">{humanize(o.report.summary, names)}</p>
+          <ol className="space-y-3">
+            {o.report.recommendations.map((r, i) => <Step key={i} rec={r} index={i} runId={run.id} names={names} />)}
+          </ol>
+        </section>
       )}
-
-      {o.dataQualityIssues.length > 0 && (
-        <Card title="Gaps in your data">
-          <DataIssues items={o.dataQualityIssues} names={names} />
-          <p className="mt-3 text-xs text-zinc-500">Missing or late data can make a campaign look better or worse than it is, so we treat those changes as unconfirmed.</p>
-        </Card>
-      )}
-
-      <Card title="All campaigns">
-        <CampaignTable facts={o.facts} />
-        <p className="mt-3 text-xs text-zinc-500">Arrows compare the latest period with the one before. Green is an improvement, red is a decline; spend is shown without a colour because spending more is not good or bad on its own.</p>
-      </Card>
-
-      <p className="text-xs text-zinc-500">All numbers come from your connected accounts. The AI only explains them and suggests actions; it cannot change anything.</p>
     </div>
+  );
+}
+
+function Step({ rec, index, runId, names }: { rec: Recommendation; index: number; runId: string; names: Map<string, string> }) {
+  const qc = useQueryClient();
+  const title = humanize(rec.title, names);
+  const add = useMutation({
+    mutationFn: () => api<ProposeResult>("/actions", {
+      method: "POST",
+      body: {
+        type: "create_task", source: "recommendation", sourceRef: `${runId}:${index}`, requestedBy: "dashboard",
+        payload: { title: title.slice(0, 120), description: `${humanize(rec.action, names)}\n\nWhy: ${humanize(rec.rationale, names)}`.slice(0, 2000), campaignId: rec.campaignId },
+      },
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
+  });
+
+  return (
+    <li className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+      <h3 className="font-medium"><span className="mr-2 text-zinc-500">{index + 1}.</span>{title}</h3>
+      <p className="mt-2 text-sm">{humanize(rec.action, names)}</p>
+      <p className="mt-1 text-sm text-zinc-500">{humanize(rec.rationale, names)}</p>
+      <div className="mt-3 flex items-center gap-3">
+        <Button variant="secondary" onClick={() => add.mutate()} disabled={add.isPending || add.isSuccess}>{add.isSuccess ? "Added to your to-do list ✓" : "Add to my to-do list"}</Button>
+        {add.error && <span className="text-sm text-red-600 dark:text-red-400">{add.error.message}</span>}
+      </div>
+    </li>
+  );
+}
+
+function Todo() {
+  const qc = useQueryClient();
+  const tasks = useQuery({ queryKey: ["tasks"], queryFn: () => api<Task[]>("/tasks?status=open") });
+  const done = useMutation({
+    mutationFn: (t: Task) => api(`/tasks/${t.id}`, { method: "PATCH", body: { status: "done" } }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
+  });
+  if (!tasks.data?.length) return null;
+  return (
+    <section aria-labelledby="todo" className="mt-8">
+      <h2 id="todo" className="mb-3 text-lg font-semibold">Your to-do list</h2>
+      <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+        {tasks.data.map((t) => (
+          <li key={t.id} className="flex items-center gap-3 px-4 py-3">
+            <input type="checkbox" className="h-4 w-4" disabled={done.isPending} onChange={() => done.mutate(t)} aria-label={`Mark "${t.title}" as done`} />
+            <span className="text-sm">{t.title}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

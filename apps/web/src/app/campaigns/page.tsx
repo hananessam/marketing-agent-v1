@@ -3,11 +3,16 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { label } from "@/lib/format";
 import type { Campaign } from "@/lib/types";
-import { Badge, Card, Empty, ErrorBox, PageHeader, statusTone } from "@/components/ui";
+import { Badge, Card, Empty, ErrorBox, PageHeader, type Tone } from "@/components/ui";
 
-const SOURCE = { manual: "drafted here", seed: "demo data", meta_ads: "from Meta Ads", ga4: "from Google Analytics" } as const;
+function state(c: Campaign): { label: string; tone: Tone } {
+  if (c.source === "manual") {
+    if (c.status === "draft") return { label: "Needs your approval", tone: "warn" };
+    if (c.status === "approved") return { label: "Approved", tone: "good" };
+  }
+  return { label: c.source === "seed" ? "Sample" : "Live data", tone: "neutral" };
+}
 
 export default function CampaignsPage() {
   const q = useQuery({ queryKey: ["campaigns"], queryFn: () => api<Campaign[]>("/campaigns") });
@@ -16,20 +21,21 @@ export default function CampaignsPage() {
       <PageHeader title="Campaigns" actions={<Link href="/campaigns/new" className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">New campaign</Link>} />
       {q.error && <ErrorBox error={q.error.message} />}
       {q.isLoading && <Empty>Loading…</Empty>}
-      {q.data && q.data.length === 0 && <Card><Empty>No campaigns yet.</Empty></Card>}
+      {q.data?.length === 0 && <Card><Empty>No campaigns yet. Press “New campaign” and the assistant will write a first draft.</Empty></Card>}
       {q.data && q.data.length > 0 && (
-        <Card className="!p-0">
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {q.data.map((c) => (
+        <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+          {q.data.map((c) => {
+            const s = state(c);
+            return (
               <li key={c.id}>
                 <Link href={`/campaigns/${c.id}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                  <span><span className="font-medium">{c.name}</span><span className="block text-xs text-zinc-500">{c.channel.split(",").map(label).join(", ")} · {SOURCE[c.source]}</span></span>
-                  <Badge tone={statusTone(c.status)}>{c.status}</Badge>
+                  <span className="min-w-0 truncate font-medium">{c.name}</span>
+                  <Badge tone={s.tone}>{s.label}</Badge>
                 </Link>
               </li>
-            ))}
-          </ul>
-        </Card>
+            );
+          })}
+        </ul>
       )}
     </>
   );
