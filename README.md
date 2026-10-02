@@ -35,14 +35,15 @@ Optional: Redis enables schedules and background jobs. Set `REDIS_URL=redis://lo
 
 ### What you see
 
-The app has three screens and a top bar: **Home**, **Campaigns**, **Settings**.
+The app has a top bar with **Home**, **Campaigns**, **Tool history** and **Settings**.
 
 - **First time:** the home page is *only* a company form (name, products, audiences, brand voice, claims you may make, phrases to avoid, your website). Save it and Home becomes the overview. The assistant works from this: drafts are written in your voice about your products, and every draft is checked against your approved claims, banned phrases and allowed link domains. Saving writes exactly what the form shows, and new drafts use it immediately.
 - **Home:** four headline numbers (compared with the previous week), "what to do next" (up to three recommendations, each with an *Add to my to-do list* button), your to-do list, and one-line notices (a campaign waiting for approval, an account to reconnect, sample data).
 - **Campaigns:** a plain list. *New campaign* asks four things (goal, product, audience, where) and writes a draft. The channels are **Google Ads** and **Facebook & Instagram (Meta) ads**. Copy that comes out longer than a platform allows (for example a Google Ads headline over 30 characters) is rewritten automatically: the AI proposes several shorter versions and the app measures them itself, so the model's counting is never trusted. Review the copy, edit or remove anything, then press **Approve campaign**. Approved copy is shown with Copy buttons: the app does not post anything for you yet.
-- **Settings:** your accounts (Google Analytics, Meta Ads; sign in to connect) and your company details. Old links such as `/connections` and `/approvals` redirect here or to Campaigns.
+- **Tool history:** every lookup the assistant made (your numbers, brand rules, products, audiences), newest first, with the request and the raw result. Filter by tool, expand any entry. These calls only read; changes to ad accounts are never made here.
+- **Settings:** your accounts (Google Analytics, Meta Ads; sign in to connect) and your company details. Old links such as `/connections`, `/approvals` and `/audit` redirect to where that screen now lives.
 
-The backend is richer than the screens: approvals, agent actions in shadow mode, schedules and the audit log all still exist behind the API, and screens for them can be added back.
+The backend is richer than the screens: approvals, agent actions, schedules and the action history all still exist behind the API, and screens for them can be added back.
 
 ### Run everything with Docker
 

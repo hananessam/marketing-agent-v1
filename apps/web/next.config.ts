@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
       { source: "/approvals", destination: "/campaigns", permanent: false },
       { source: "/tasks", destination: "/", permanent: false },
       { source: "/activity", destination: "/", permanent: false },
-      { source: "/audit", destination: "/", permanent: false },
+      { source: "/audit", destination: "/history", permanent: false },
     ];
   },
 };
