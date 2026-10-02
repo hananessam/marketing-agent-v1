@@ -33,6 +33,12 @@ Other scripts: `pnpm test`, `pnpm typecheck`. After changing `packages/shared`, 
 
 Optional: Redis enables schedules and background jobs. Set `REDIS_URL=redis://localhost:6379` for the API. Without it the API still runs, and the Schedules page explains that jobs are disabled.
 
+### First-time setup
+
+The first thing you see at http://localhost:3000 is **only a company form** (no sidebar, no reports): company name, products, audiences, brand voice, the claims you may make, phrases to avoid, and your website. Save it and the home page becomes the Overview. Edit it any time under **Company** in the sidebar.
+
+This is the information the assistant actually works from: drafts are written in your voice about your products, and every draft is checked against your approved claims, banned phrases and allowed link domains. Saving writes exactly what the form shows (items you remove are deleted), and new drafts use it immediately. If sample data is loaded, the form is pre-filled with sample details and says so; replace them with your own.
+
 ### Run everything with Docker
 
 Requires Docker Desktop (or Docker Engine with Compose v2).

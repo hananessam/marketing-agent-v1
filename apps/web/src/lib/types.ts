@@ -76,3 +76,10 @@ export type AgentAction = {
 };
 export type ProposeResult = { action: AgentAction; reused: boolean };
 export type Task = { id: string; title: string; description: string; campaignId: string | null; status: "open" | "done"; actionId: string | null; createdAt: string; doneAt: string | null };
+
+export type CompanyItem = { id?: string; name: string; description: string };
+export type Company = {
+  name: string; onboarded: boolean; sample: boolean; voice: string;
+  approvedClaims: string[]; prohibited: string[]; allowedDomains: string[];
+  products: (CompanyItem & { id: string })[]; audiences: (CompanyItem & { id: string })[];
+};

@@ -4,7 +4,11 @@ const id = () => text("id").primaryKey();
 const workspaceId = () => text("workspace_id").notNull().references(() => workspaces.id);
 const createdAt = () => text("created_at").notNull().$defaultFn(() => new Date().toISOString());
 
-export const workspaces = sqliteTable("workspaces", { id: id(), name: text("name").notNull(), createdAt: createdAt() });
+export const workspaces = sqliteTable("workspaces", {
+  id: id(), name: text("name").notNull(), createdAt: createdAt(),
+  /** Set the first time someone saves the company details. Until then the dashboard shows only the setup form. */
+  onboardedAt: text("onboarded_at"),
+});
 
 export const brandProfiles = sqliteTable("brand_profiles", {
   id: id(), workspaceId: workspaceId(),

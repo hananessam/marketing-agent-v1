@@ -4,14 +4,36 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { humanize, timeAgo } from "@/lib/format";
-import type { AnalyticsOutput, AnalyticsRun, Approval, Campaign, Connection } from "@/lib/types";
+import type { AnalyticsOutput, AnalyticsRun, Approval, Campaign, Company, Connection } from "@/lib/types";
 import { Attention, CampaignTable, Changes, DataIssues, GettingStarted, Headline, NextSteps, periodLabel, type AttentionItem } from "@/components/home-parts";
+import { CompanyForm } from "@/components/company-form";
 import { Button, Card, Empty, ErrorBox, PageHeader } from "@/components/ui";
 
 const PROVIDER_NAME = { ga4: "Google Analytics", meta_ads: "Meta Ads" } as const;
 const STALE_DAYS = 2;
 
+/** First run: the home page is only the company form. Once it is saved, the home page is the Overview. */
 export default function HomePage() {
+  const company = useQuery({ queryKey: ["company"], queryFn: () => api<Company>("/company") });
+  if (company.isLoading) return null; // the frame shows the loading state
+  if (company.error) return <ErrorBox error={company.error.message} />;
+  if (company.data && !company.data.onboarded) return <Onboarding company={company.data} />;
+  return <Overview />;
+}
+
+function Onboarding({ company }: { company: Company }) {
+  return (
+    <>
+      <h1 className="text-2xl font-semibold tracking-tight">Tell us about your company</h1>
+      <p className="mb-6 mt-1 text-sm text-zinc-500">
+        This takes a few minutes. The assistant uses it to write drafts in your voice and to check them against your rules. Nothing is ever published without your approval.
+      </p>
+      <CompanyForm initial={company} mode="onboarding" />
+    </>
+  );
+}
+
+function Overview() {
   const qc = useQueryClient();
   const [days, setDays] = useState(7);
   const [now] = useState(() => Date.now()); // fixed at mount so rendering stays pure

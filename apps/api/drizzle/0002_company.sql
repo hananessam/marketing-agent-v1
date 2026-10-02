@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `onboarded_at` text;
