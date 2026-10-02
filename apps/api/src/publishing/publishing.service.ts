@@ -24,10 +24,22 @@ export class PublishingService implements Publisher {
     return process.env.EXECUTION_MODE === "live" ? "live" : "shadow";
   }
 
-  /** A hard ceiling on the daily budget this app will ever set, whatever is typed into a form. */
-  get maxDailyBudget(): number {
-    const n = Number(process.env.MAX_DAILY_BUDGET);
-    return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_DAILY_BUDGET;
+  /**
+   * Minimum (Meta's own, per ad account) and maximum (ours) daily budget, in the account's currency.
+   * The default ceiling is 50x the minimum, which is roughly 50 US dollars in any currency; MAX_DAILY_BUDGET overrides it.
+   */
+  private limits(config?: Record<string, string>) {
+    const min = Number(config?.minDailyBudget) > 0 ? Number(config?.minDailyBudget) : null;
+    const explicit = Number(process.env.MAX_DAILY_BUDGET);
+    const cap = Number.isFinite(explicit) && explicit > 0 ? explicit : min ? Math.round(min * 50 * 100) / 100 : DEFAULT_MAX_DAILY_BUDGET;
+    return { min, cap, currency: config?.currency ?? null };
+  }
+
+  private budgetProblem(budget: number, lim: { min: number | null; cap: number; currency: string | null }): string | null {
+    const cur = lim.currency ? ` ${lim.currency}` : "";
+    if (lim.min !== null && budget <= lim.min) return `Meta needs a daily budget of more than ${lim.min}${cur} for this ad account (you entered ${budget}).`;
+    if (budget > lim.cap) return `The daily budget is limited to ${lim.cap}${cur} per campaign (you entered ${budget}). The limit can be raised with MAX_DAILY_BUDGET on the server.`;
+    return null;
   }
 
   private metaConnection(workspaceId: string) {
@@ -50,9 +62,10 @@ export class PublishingService implements Publisher {
     let defaults: MetaSettings | null = null;
     try { defaults = conn?.config.publishDefaults ? (JSON.parse(conn.config.publishDefaults) as MetaSettings) : null; } catch { /* ignore a corrupt value */ }
     const missing = conn ? this.missing(conn) : [...REQUIRED_PERMISSIONS];
+    const lim = this.limits(conn?.config);
     return {
       mode: this.mode,
-      maxDailyBudget: this.maxDailyBudget,
+      maxDailyBudget: lim.cap, minDailyBudget: lim.min, currency: lim.currency,
       meta: { connected: Boolean(conn), connectionId: conn?.id ?? null, accountName: conn?.config.accountName ?? null, canPublish: Boolean(conn) && missing.length === 0, missing, defaults },
       google: { available: false, reason: "Google Ads is not connected yet. Its copy stays on the campaign page, ready to copy." },
     };
@@ -66,7 +79,8 @@ export class PublishingService implements Publisher {
     const pub = this.publisherFor(conn);
     try {
       const [account, pages] = await Promise.all([pub.account(), pub.pages()]);
-      return { ...base, currency: account.currency, accountActive: account.active, pages };
+      this.rememberAccount(conn, account); // so the checks that run without calling Meta know this account's limits
+      return { ...this.status(workspaceId), currency: account.currency, accountActive: account.active, pages };
     } catch (e) {
       throw this.readable(e);
     }
@@ -78,7 +92,8 @@ export class PublishingService implements Publisher {
     const hasMetaCopy = this.approvedAssets(workspaceId, campaignId).some((a) => a.variant.startsWith("meta_ads:"));
 
     if (meta) {
-      if (meta.dailyBudget > this.maxDailyBudget) throw new UnprocessableEntityException(`The daily budget is limited to ${this.maxDailyBudget} per campaign (you entered ${meta.dailyBudget}). The limit can be raised with MAX_DAILY_BUDGET on the server.`);
+      const problem = this.budgetProblem(meta.dailyBudget, this.limits(this.metaConnection(workspaceId)?.config));
+      if (problem) throw new UnprocessableEntityException(problem);
       let host: string;
       try {
         const u = new URL(meta.landingUrl);
@@ -124,6 +139,10 @@ export class PublishingService implements Publisher {
       try {
         const account = await pub.account();
         if (!account.active) throw new ConflictException("This Meta ad account is not active. Check billing and status in Ads Manager.");
+        // Meta's minimum is specific to this account. Check it now, before anything is created.
+        this.rememberAccount(conn, account);
+        const problem = this.budgetProblem(meta.dailyBudget, this.limits({ minDailyBudget: String(account.minDailyBudget ?? ""), currency: account.currency }));
+        if (problem) throw new UnprocessableEntityException(problem);
         const pages = await pub.pages();
         // The Page id came from a form: only accept one this login really manages.
         if (!pages.some((p) => p.id === meta.pageId)) throw new ConflictException("That Facebook Page is not one this login can post as.");
@@ -132,7 +151,7 @@ export class PublishingService implements Publisher {
         platforms.meta_ads = { outcome: "created_paused", ...res };
         posted = true;
         // Remember the answers for next time.
-        this.db.update(schema.connections).set({ config: { ...conn.config, publishDefaults: JSON.stringify(meta) } }).where(eq(schema.connections.id, conn.id)).run();
+        this.db.update(schema.connections).set({ config: { ...conn.config, publishDefaults: JSON.stringify(meta) } }).where(eq(schema.connections.id, conn.id)).run(); // conn.config already carries the refreshed account limits
       } catch (e) {
         throw this.readable(e);
       }
@@ -162,6 +181,14 @@ export class PublishingService implements Publisher {
   private approvedAssets(workspaceId: string, campaignId: string) {
     return this.db.select().from(schema.campaignAssets)
       .where(and(eq(schema.campaignAssets.workspaceId, workspaceId), eq(schema.campaignAssets.campaignId, campaignId), eq(schema.campaignAssets.status, "approved"))).all();
+  }
+
+  private rememberAccount(conn: { id: string; config: Record<string, string> }, account: { currency: string; minDailyBudget: number | null }) {
+    const next = { ...conn.config, currency: account.currency, ...(account.minDailyBudget !== null ? { minDailyBudget: String(account.minDailyBudget) } : {}) };
+    if (next.currency !== conn.config.currency || next.minDailyBudget !== conn.config.minDailyBudget) {
+      this.db.update(schema.connections).set({ config: next }).where(eq(schema.connections.id, conn.id)).run();
+      conn.config = next;
+    }
   }
 
   private publisherFor(conn: { encryptedSecret: string; accountId: string }): MetaPublisher {

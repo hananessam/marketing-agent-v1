@@ -87,9 +87,9 @@ export type Company = {
 };
 
 export type PublishingStatus = {
-  mode: "shadow" | "live"; maxDailyBudget: number;
+  mode: "shadow" | "live"; maxDailyBudget: number; minDailyBudget: number | null; currency: string | null;
   meta: { connected: boolean; connectionId: string | null; accountName: string | null; canPublish: boolean; missing: string[]; defaults: { dailyBudget: number; country: string; pageId: string; landingUrl: string } | null };
   google: { available: boolean; reason: string };
 };
-export type MetaDetails = PublishingStatus & { currency: string | null; accountActive: boolean | null; pages: { id: string; name: string }[] };
+export type MetaDetails = PublishingStatus & { accountActive: boolean | null; pages: { id: string; name: string }[] };
 export type PublishInfo = { id: string; status: ActionStatus; result: Record<string, unknown> | null; createdAt: string; executedAt: string | null };

@@ -80,9 +80,15 @@ export class MetaPublisher {
 
   // ------------------------------------------------------------------ read helpers
 
-  async account(): Promise<{ name: string; currency: string; active: boolean }> {
-    const a = await this.call("GET", this.adAccountId, { fields: "name,currency,account_status" });
-    return { name: a.name ?? this.adAccountId, currency: String(a.currency ?? "USD").toUpperCase(), active: a.account_status === 1 };
+  /** `minDailyBudget` is in whole currency units (what a person types), or null if Meta does not say. */
+  async account(): Promise<{ name: string; currency: string; active: boolean; minDailyBudget: number | null }> {
+    const a = await this.call("GET", this.adAccountId, { fields: "name,currency,account_status,min_daily_budget" });
+    const currency = String(a.currency ?? "USD").toUpperCase();
+    const minor = Number(a.min_daily_budget);
+    return {
+      name: a.name ?? this.adAccountId, currency, active: a.account_status === 1,
+      minDailyBudget: Number.isFinite(minor) && minor > 0 ? minor / toMinorUnits(1, currency) : null,
+    };
   }
 
   /** The Facebook Pages this login can run ads for. */

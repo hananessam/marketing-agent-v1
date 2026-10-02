@@ -13,7 +13,7 @@ beforeAll(() => { process.env.CONNECTOR_ENCRYPTION_KEY = randomBytes(32).toStrin
 
 class FakePublisher {
   published: Record<string, any>[] = [];
-  account = async () => ({ name: "Acct", currency: "USD", active: true });
+  account = async (): Promise<{ name: string; currency: string; active: boolean; minDailyBudget: number | null }> => ({ name: "Acct", currency: "USD", active: true, minDailyBudget: null });
   pages = async () => [{ id: "111222333", name: "Acme" }];
   publish = async (args: Record<string, any>) => {
     this.published.push(args);
@@ -76,7 +76,7 @@ describe("status", () => {
     process.env.MAX_DAILY_BUDGET = "120";
     expect(publishing.status("w")).toMatchObject({ mode: "live", maxDailyBudget: 120 });
     process.env.MAX_DAILY_BUDGET = "nonsense";
-    expect(publishing.maxDailyBudget).toBe(50); // a bad value falls back to the safe default
+    expect(publishing.status("w").maxDailyBudget).toBe(50); // a bad value falls back to the safe default
   });
 
   it("only reads the Meta details (currency, Pages) once posting is allowed", async () => {
@@ -120,6 +120,44 @@ describe("refusals (live mode)", () => {
   it("validates the country and the Page id shape", async () => {
     await expect(propose({ campaignId: "ready", meta: { ...META, country: "usa" } })).rejects.toMatchObject({ status: 400 });
     await expect(propose({ campaignId: "ready", meta: { ...META, pageId: "not-a-number" } })).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("the ad account's own budget limits (a real EGP account rejected a budget under 52.43)", () => {
+  beforeEach(() => { process.env.EXECUTION_MODE = "live"; });
+  const knowMinimum = (min: string, currency = "EGP") => db.update(schema.connections).set({ config: { ...connection().config, minDailyBudget: min, currency } }).run();
+
+  it("learns the account's currency and minimum when the form loads, and then enforces them without calling Meta", async () => {
+    fake.account = async () => ({ name: "Acct", currency: "EGP", active: true, minDailyBudget: 52.43 });
+    const d = await publishing.metaDetails("w");
+    expect(d).toMatchObject({ currency: "EGP", minDailyBudget: 52.43, maxDailyBudget: 2621.5 }); // ceiling defaults to 50x the minimum (about 50 USD)
+    expect(connection().config).toMatchObject({ currency: "EGP", minDailyBudget: "52.43" });
+    expect(publishing.status("w")).toMatchObject({ currency: "EGP", minDailyBudget: 52.43 });
+  });
+
+  it("refuses a budget at or under the minimum before anything is created, with the account's own numbers", async () => {
+    knowMinimum("52.43");
+    await expect(propose({ campaignId: "ready", meta: { ...META, dailyBudget: 50 } })).rejects.toThrow(/more than 52.43 EGP/);
+    await expect(propose({ campaignId: "ready", meta: { ...META, dailyBudget: 52.43 } })).rejects.toThrow(/more than 52.43 EGP/); // Meta needs strictly more
+    expect(pending()).toHaveLength(0);
+    await expect(propose({ campaignId: "ready", meta: { ...META, dailyBudget: 53 } })).resolves.toBeTruthy();
+  });
+
+  it("scales the default ceiling to the currency, so a valid budget is never above it", async () => {
+    knowMinimum("52.43");
+    await expect(propose({ campaignId: "ready", meta: { ...META, dailyBudget: 2000 } })).resolves.toBeTruthy(); // fine in EGP; would be far above 50 in a USD-sized ceiling
+    await expect(propose({ campaignId: "ready", meta: { ...META, dailyBudget: 3000 } })).rejects.toThrow(/limited to 2621.5 EGP/);
+    process.env.MAX_DAILY_BUDGET = "100";
+    await expect(propose({ campaignId: "ready", meta: { ...META, dailyBudget: 99 } })).resolves.toBeTruthy(); // an explicit setting always wins
+    await expect(propose({ campaignId: "ready", meta: { ...META, dailyBudget: 101 } })).rejects.toThrow(/limited to 100 EGP/);
+  });
+
+  it("checks Meta's current minimum again when it runs, so a stale or missing cache cannot let a bad budget through", async () => {
+    const r = await propose({ campaignId: "ready", meta: { ...META, dailyBudget: 20 } }); // nothing cached yet, so it is accepted
+    fake.account = async () => ({ name: "Acct", currency: "EGP", active: true, minDailyBudget: 52.43 });
+    await approveLatest();
+    expect(actions.get("w", r.action.id)).toMatchObject({ status: "failed", result: { error: expect.stringContaining("more than 52.43 EGP") } });
+    expect(fake.published).toHaveLength(0); // nothing was created, so nothing needed cleaning up
   });
 });
 
@@ -201,12 +239,12 @@ describe("approving posts to Meta (paused) in live mode", () => {
   });
 
   it("refuses an inactive ad account and a Page this login does not manage, before creating anything", async () => {
-    fake.account = async () => ({ name: "Acct", currency: "USD", active: false });
+    fake.account = async () => ({ name: "Acct", currency: "USD", active: false, minDailyBudget: null });
     await propose({ campaignId: "ready", meta: META });
     await approveLatest();
     expect(actions.list("w")[0]).toMatchObject({ status: "failed", result: { error: expect.stringContaining("not active") } });
 
-    fake.account = async () => ({ name: "Acct", currency: "USD", active: true });
+    fake.account = async () => ({ name: "Acct", currency: "USD", active: true, minDailyBudget: null });
     await propose({ campaignId: "ready", meta: { ...META, pageId: "999888777" } });
     await approveLatest();
     expect(actions.list("w")[0]).toMatchObject({ status: "failed", result: { error: expect.stringContaining("not one this login can post as") } });

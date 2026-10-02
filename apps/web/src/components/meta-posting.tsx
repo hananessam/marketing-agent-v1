@@ -42,17 +42,22 @@ export function useMetaForm(details: MetaDetails | undefined, company: Company |
   const [pageId, setPageId] = useState<string>("");
   const [url, setUrl] = useState<string>("");
 
-  const effBudget = budget || String(d?.dailyBudget ?? 10);
+  const min = details?.minDailyBudget ?? null;
+  const ceiling = details?.maxDailyBudget ?? 50;
+  // A sensible starting point that Meta will accept (about twice the account's minimum), never above the ceiling.
+  const effBudget = budget || String(d?.dailyBudget ?? Math.min(min ? Math.ceil(min * 2) : 10, ceiling));
   const effCountry = country || d?.country || "US";
   const effPage = pageId || (details?.pages.some((p) => p.id === d?.pageId) ? d?.pageId : details?.pages[0]?.id) || "";
   const domain = company?.allowedDomains[0];
   const effUrl = url || d?.landingUrl || (domain ? `https://${domain}` : "");
 
-  const max = details?.maxDailyBudget ?? 50;
+  const max = ceiling;
+  const cur = details?.currency ? ` ${details.currency}` : "";
   const n = Number(effBudget);
   const problems: string[] = [];
   if (!(n > 0)) problems.push("Enter a daily budget above 0.");
-  if (n > max) problems.push(`The daily budget is limited to ${max}.`);
+  else if (min !== null && n <= min) problems.push(`Meta needs more than ${min}${cur} a day for this ad account.`);
+  else if (n > max) problems.push(`The daily budget is limited to ${max}${cur}.`);
   if (!effPage) problems.push("Choose a Facebook Page.");
   if (!/^https:\/\/.+/.test(effUrl)) problems.push("The landing page must start with https://");
 
@@ -74,8 +79,10 @@ export function MetaSettingsFields({ form, details }: { form: ReturnType<typeof 
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm"><span className="mb-1 block font-medium">Daily budget{details.currency ? ` (${details.currency})` : ""}</span>
-          <input type="number" min={1} max={details.maxDailyBudget} step="any" className={inputClass} value={v.budget} onChange={(e) => set.budget(e.target.value)} />
-          <span className="mt-1 block text-xs text-zinc-500">At most {details.maxDailyBudget} a day.</span></label>
+          <input type="number" min={details.minDailyBudget ?? 1} max={details.maxDailyBudget} step="any" className={inputClass} value={v.budget} onChange={(e) => set.budget(e.target.value)} />
+          <span className="mt-1 block text-xs text-zinc-500">
+            {details.minDailyBudget !== null ? `More than ${details.minDailyBudget}` : "Any amount"} and at most {details.maxDailyBudget}{details.currency ? ` ${details.currency}` : ""} a day.
+          </span></label>
         <label className="block text-sm"><span className="mb-1 block font-medium">Show ads in</span>
           <select className={inputClass} value={v.country} onChange={(e) => set.country(e.target.value)}>
             {COUNTRIES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}

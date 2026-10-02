@@ -5,7 +5,7 @@ import { ctaTypeFor, MetaPublisher, MetaPublishError, toMinorUnits, withTracking
 type Call = { method: string; path: string; params: Record<string, string>; headers: Record<string, string>; url: string };
 
 /** A tiny fake of the Graph API that records every request and can be told to misbehave. */
-function fakeGraph(opts: { failOn?: (c: Call, n: number) => { status: number; body: unknown } | undefined; statusOf?: (id: string) => string | undefined } = {}) {
+function fakeGraph(opts: { currency?: string; minBudget?: string | null; failOn?: (c: Call, n: number) => { status: number; body: unknown } | undefined; statusOf?: (id: string) => string | undefined } = {}) {
   const calls: Call[] = [];
   const objects = new Map<string, { kind: string; status: string }>();
   let seq = 99; // first created object is 100: campaign 100, ad set 101, then creative/ad pairs
@@ -37,7 +37,7 @@ function fakeGraph(opts: { failOn?: (c: Call, n: number) => { status: number; bo
       if (params.after === "C") return reply(200, { data: [{ id: "222", name: "Second Page" }], paging: { cursors: { after: "D" } } });
       return reply(200, { data: [{ id: "111", name: "Acme Page" }, { id: "x", name: "bad" }], paging: { cursors: { after: "C" }, next: "https://leak?access_token=SECRET" } });
     }
-    if (path.startsWith("act_")) return reply(200, { name: "My Account", currency: "usd", account_status: 1 });
+    if (path.startsWith("act_")) return reply(200, { name: "My Account", currency: opts.currency ?? "usd", account_status: 1, ...(opts.minBudget === null ? {} : { min_daily_budget: opts.minBudget ?? "100" }) });
     const o = objects.get(path);
     return reply(200, { id: path, status: opts.statusOf?.(path) ?? o?.status });
   }) as unknown as typeof fetch;
@@ -164,7 +164,12 @@ describe("publishing to Meta", () => {
 
 describe("reading the account", () => {
   it("returns the account's name, currency (upper-cased) and whether it is active", async () => {
-    expect(await make(fakeGraph()).account()).toEqual({ name: "My Account", currency: "USD", active: true });
+    expect(await make(fakeGraph()).account()).toEqual({ name: "My Account", currency: "USD", active: true, minDailyBudget: 1 });
+  });
+  it("reports the account's own minimum daily budget in whole currency units (this is what rejected a real EGP ad set)", async () => {
+    expect((await make(fakeGraph({ currency: "EGP", minBudget: "5243" })).account()).minDailyBudget).toBe(52.43);
+    expect((await make(fakeGraph({ currency: "JPY", minBudget: "150" })).account()).minDailyBudget).toBe(150); // zero-decimal currencies are not divided
+    expect((await make(fakeGraph({ minBudget: null })).account()).minDailyBudget).toBeNull(); // Meta did not say
   });
   it("lists Pages by cursor, drops malformed ids and never follows the token-bearing next link", async () => {
     const g = fakeGraph();
