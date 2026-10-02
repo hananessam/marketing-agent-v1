@@ -3,8 +3,8 @@ export type Metric = "impressions" | "clicks" | "spend" | "conversions" | "reven
 export type Campaign = { id: string; name: string; channel: string; status: "draft" | "approved" | "active" | "paused"; source: "manual" | "seed" | "meta_ads" | "ga4"; createdAt: string };
 export type Asset = { id: string; kind: string; variant: string; content: string; status: "draft" | "approved" | "rejected" };
 export type CampaignDetail = Campaign & {
-  brief: { objective: string; product: string; audience: string; channels: string[]; durationDays: number; budget?: number; constraints: string[] };
-  plan: {
+  brief: null | { objective: string; product: string; audience: string; channels: string[]; durationDays: number; budget?: number; constraints: string[] };
+  plan: null | {
     positioning: string; keyMessage: string; audienceSegments: string[]; risks: string[];
     channels: { name: string; role: string; contentTypes: string[]; successMetrics: string[] }[];
   };
@@ -54,3 +54,12 @@ export type Account = { id: string; name: string };
 export type SyncOutcome =
   | { status: "succeeded"; runId: string; summary: NonNullable<Connection["lastSummary"]> }
   | { status: "failed"; runId: string; error: string; needsReauth: boolean };
+
+export type PeriodTotals = { impressions: number; clicks: number; spend: number; conversions: number; revenue: number; ctr: number; conversionRate: number; cpc: number; cpa: number | null; roas: number | null; daysWithData: number };
+export type CampaignPerformance = {
+  campaign: { id: string; name: string; channel: string; status: Campaign["status"]; source: Campaign["source"] };
+  days: number; latestDate: string | null;
+  range: { startDate: string; endDate: string } | null; previousRange: { startDate: string; endDate: string } | null;
+  daily: { date: string; impressions: number; clicks: number; spend: number; conversions: number; revenue: number }[];
+  totals: PeriodTotals | null; previousTotals: PeriodTotals | null;
+};

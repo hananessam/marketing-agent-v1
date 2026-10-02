@@ -24,6 +24,12 @@ export class CampaignsController {
     return this.campaigns.get(ws, id);
   }
 
+  @Get("campaigns/:id/performance")
+  performance(@WorkspaceId() ws: string, @Param("id") id: string, @Query("days") days?: string) {
+    const n = Math.min(Math.max(Number(days) || 14, 3), 90);
+    return this.campaigns.performance(ws, id, n);
+  }
+
   @Patch("campaigns/:id/assets/:assetId")
   edit(@WorkspaceId() ws: string, @Param("id") id: string, @Param("assetId") assetId: string, @Body(new ZodValidationPipe(EditAssetBody)) body: z.infer<typeof EditAssetBody>) {
     return this.campaigns.editAsset(ws, id, assetId, body.content);

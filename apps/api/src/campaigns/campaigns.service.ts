@@ -1,6 +1,6 @@
-import { CampaignBrief, type CampaignPlan } from "@marketing/shared";
+import { aggregate, calculateMetrics, CampaignBrief, type CampaignPlan } from "@marketing/shared";
 import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, max } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { schema, type Db } from "../db";
@@ -122,6 +122,37 @@ export class CampaignsService {
     const experiments = this.db.select().from(schema.experiments)
       .where(and(eq(schema.experiments.workspaceId, workspaceId), eq(schema.experiments.campaignId, campaignId))).all();
     return { ...campaign, assets, experiments };
+  }
+
+  /**
+   * Daily numbers for one campaign: the last `days` days that have data, and the same number of days before
+   * them for comparison. Anchored on the latest day we actually hold, so a stale feed still shows something.
+   */
+  performance(workspaceId: string, campaignId: string, days = 14) {
+    const campaign = this.campaignOrThrow(workspaceId, campaignId);
+    const m = schema.campaignMetrics;
+    const where = (from?: string, to?: string) => and(
+      eq(m.workspaceId, workspaceId), eq(m.campaignId, campaignId), ...(from ? [gte(m.date, from)] : []), ...(to ? [lte(m.date, to)] : []));
+
+    const latest = this.db.select({ d: max(m.date) }).from(m).where(where()).get()?.d ?? null;
+    const empty = { campaign: { id: campaign.id, name: campaign.name, channel: campaign.channel, status: campaign.status, source: campaign.source }, days, latestDate: latest, range: null, previousRange: null, daily: [], totals: null, previousTotals: null };
+    if (!latest) return empty;
+
+    const shift = (iso: string, n: number) => new Date(Date.parse(iso) + n * 86_400_000).toISOString().slice(0, 10);
+    const range = { startDate: shift(latest, -(days - 1)), endDate: latest };
+    const previousRange = { startDate: shift(latest, -(2 * days - 1)), endDate: shift(latest, -days) };
+    const pick = (r: { startDate: string; endDate: string }) =>
+      this.db.select().from(m).where(where(r.startDate, r.endDate)).orderBy(asc(m.date)).all();
+    const current = pick(range);
+    const previous = pick(previousRange);
+    const summarize = (rows: typeof current) => { const t = aggregate(rows); return { ...t, ...calculateMetrics(t), daysWithData: rows.length }; };
+
+    return {
+      ...empty, range, previousRange,
+      daily: current.map((r) => ({ date: r.date, impressions: r.impressions, clicks: r.clicks, spend: r.spend, conversions: r.conversions, revenue: r.revenue })),
+      totals: summarize(current),
+      previousTotals: previous.length ? summarize(previous) : null,
+    };
   }
 
   // ---------- human review ----------

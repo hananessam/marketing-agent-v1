@@ -159,3 +159,50 @@ describe("review and approval", () => {
     expect(svc.listApprovals("other")).toEqual([]);
   });
 });
+
+describe("campaign performance", () => {
+  const metric = (campaignId: string, date: string, over: Record<string, number> = {}) => ({
+    workspaceId: "w", campaignId, channel: "meta_ads", date, impressions: 1000, clicks: 100, spend: 50, conversions: 5, revenue: 200, ingestedAt: "x", ...over,
+  });
+  const day = (n: number) => new Date(Date.parse("2026-03-14") - n * 86_400_000).toISOString().slice(0, 10);
+
+  beforeEach(() => {
+    db.insert(schema.campaigns).values([
+      { id: "p1", workspaceId: "w", name: "Meta Spring", channel: "meta_ads", status: "active", source: "meta_ads" },
+      { id: "p2", workspaceId: "other", name: "Theirs", channel: "meta_ads", status: "active", source: "seed" },
+    ]).run();
+  });
+
+  it("works for campaigns that were not drafted here (no brief or plan) and compares with the previous window", () => {
+    const rows = [];
+    for (let i = 0; i < 6; i++) rows.push(metric("p1", day(i), { conversions: 10, revenue: 400 })); // latest 3 days of the window + earlier
+    for (let i = 6; i < 12; i++) rows.push(metric("p1", day(i)));
+    db.insert(schema.campaignMetrics).values(rows).run();
+    const { svc } = make({});
+    const p = svc.performance("w", "p1", 6);
+    expect(p.campaign).toMatchObject({ name: "Meta Spring", source: "meta_ads" });
+    expect(p.range).toEqual({ startDate: day(5), endDate: day(0) });
+    expect(p.previousRange).toEqual({ startDate: day(11), endDate: day(6) });
+    expect(p.daily.map((d) => d.date)).toEqual([day(5), day(4), day(3), day(2), day(1), day(0)]);
+    expect(p.totals).toMatchObject({ conversions: 60, revenue: 2400, spend: 300, daysWithData: 6 });
+    expect(p.totals!.roas).toBeCloseTo(8);
+    expect(p.previousTotals).toMatchObject({ conversions: 30, revenue: 1200 });
+  });
+
+  it("anchors on the latest day with data, so a stale feed still shows something", () => {
+    db.insert(schema.campaignMetrics).values([metric("p1", "2026-01-05")]).run();
+    expect(make({}).svc.performance("w", "p1", 7).latestDate).toBe("2026-01-05");
+  });
+
+  it("returns an empty shape (not an error) when there is no data, and null comparison with no earlier data", () => {
+    const { svc } = make({});
+    expect(svc.performance("w", "p1")).toMatchObject({ latestDate: null, daily: [], totals: null, previousTotals: null });
+    db.insert(schema.campaignMetrics).values([metric("p1", day(0))]).run();
+    expect(svc.performance("w", "p1", 7).previousTotals).toBeNull();
+  });
+
+  it("is workspace-scoped", () => {
+    db.insert(schema.campaignMetrics).values([metric("p2", day(0))]).run();
+    expect(() => make({}).svc.performance("w", "p2")).toThrow(/not found/);
+  });
+});

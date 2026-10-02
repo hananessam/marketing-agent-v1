@@ -7,6 +7,7 @@ import { useState } from "react";
 import { api, errorDetails } from "@/lib/api";
 import { label } from "@/lib/format";
 import type { Approval, Asset, CampaignDetail } from "@/lib/types";
+import { CampaignPerformanceView } from "@/components/campaign-performance";
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass, statusTone } from "@/components/ui";
 
 export default function CampaignPage() {
@@ -17,6 +18,8 @@ export default function CampaignPage() {
   if (q.isLoading) return <Empty>Loading…</Empty>;
   if (q.error) return <ErrorBox error={q.error.message} />;
   const c = q.data!;
+  // Campaigns that were not drafted here (sample data, or synced from Meta / Google) have no brief, plan or copy.
+  if (!c.brief && !c.plan && c.assets.length === 0) return <CampaignPerformanceView id={id} />;
   const approval = approvals.data?.find((a) => a.payload.campaignId === id);
   const editable = c.status === "draft";
 
@@ -32,7 +35,7 @@ export default function CampaignPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={c.name} subtitle={`Objective: ${c.brief.objective} · ${c.brief.durationDays} days · audience: ${c.brief.audience}`}
+      <PageHeader title={c.name} subtitle={c.brief ? `Objective: ${c.brief.objective} · ${c.brief.durationDays} days · audience: ${c.brief.audience}` : undefined}
         actions={<Badge tone={statusTone(c.status)}>{c.status}</Badge>} />
 
       {approval && approval.status === "pending" && (
@@ -45,6 +48,7 @@ export default function CampaignPage() {
       )}
       {approval && approval.status !== "pending" && <p className="text-sm text-zinc-500">Approval {approval.status}{approval.decidedBy ? ` by ${approval.decidedBy}` : ""}. Assets are now locked.</p>}
 
+      {c.plan && (
       <Card title="Plan">
         <p className="text-sm"><span className="font-medium">Positioning:</span> {c.plan.positioning}</p>
         <p className="mt-2 text-sm"><span className="font-medium">Key message:</span> {c.plan.keyMessage}</p>
@@ -65,6 +69,7 @@ export default function CampaignPage() {
         )}
         {c.plan.risks.length > 0 && <p className="mt-3 text-sm"><span className="font-medium">Risks:</span> {c.plan.risks.join("; ")}</p>}
       </Card>
+      )}
 
       {[...groups].map(([channel, kinds]) => (
         <Card key={channel} title={label(channel)}>

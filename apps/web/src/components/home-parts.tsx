@@ -20,7 +20,7 @@ export function totalsFor(facts: Facts, period: "current" | "previous"): Totals 
 
 const change = (cur: number | null, prev: number | null) => (cur === null || prev === null || prev === 0 ? null : (cur - prev) / prev);
 
-function Tile({ metric, value, delta, goodWhen, days }: { metric: Metric; value: number | null; delta: number | null; goodWhen: "up" | "down" | "neutral"; days: number }) {
+export function Tile({ metric, value, delta, goodWhen, days }: { metric: Metric; value: number | null; delta: number | null; goodWhen: "up" | "down" | "neutral"; days: number }) {
   const meta = METRIC_LABEL[metric];
   const flat = delta === null || Math.abs(delta) < 0.02;
   const good = !flat && goodWhen !== "neutral" && (delta! > 0) === (goodWhen === "up");
@@ -32,7 +32,7 @@ function Tile({ metric, value, delta, goodWhen, days }: { metric: Metric; value:
       <p className="mt-1 text-2xl font-semibold tracking-tight">{formatMetric(metric, value)}</p>
       <p className={`mt-1 text-xs ${tone}`}>
         {delta === null ? "No comparison yet" : flat ? "About the same" : <><span aria-hidden>{delta > 0 ? "▲" : "▼"}</span> {formatChange(delta)} <span className="sr-only">{bad ? "(worse)" : good ? "(better)" : ""}</span></>}
-        <span className="text-zinc-500"> vs previous {days} days</span>
+        {delta !== null && <span className="text-zinc-500"> vs previous {days} days</span>}
       </p>
     </div>
   );
