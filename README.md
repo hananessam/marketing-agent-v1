@@ -238,6 +238,23 @@ When you approve a campaign that has Facebook & Instagram copy, the app can crea
 
 ---
 
+## Tools
+
+The assistant works only through these typed tools.
+
+**Read tools** (look things up; every call is logged on the Tool history page):
+- `list_campaigns`: lists your campaigns.
+- `get_campaign_metrics`: daily numbers and totals for one campaign over a date range.
+- `get_brand_guidelines`: your brand voice, approved claims, banned phrases and allowed domains.
+- `get_product_information`: your products.
+- `get_audience_segments`: your target audiences.
+
+**Action tools** (change something; each shows a preview first):
+- `create_task`: adds an item to your to-do list. No approval needed.
+- `publish_campaign`: posts an approved campaign to Meta as paused ads (recorded only in shadow mode).
+- `pause_campaign`: pauses a campaign. Needs approval; recorded only for now.
+- `change_budget`: changes a daily budget by at most 10%. Needs approval; recorded only for now.
+
 ## Safety model
 
 - Drafts, reports and internal tasks run automatically; sending, publishing, budget changes and pausing need human approval and, for now, are only recorded (shadow mode); deleting is never automatic.
