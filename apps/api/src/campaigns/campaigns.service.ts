@@ -15,6 +15,7 @@ import { CAMPAIGN_WRITER, type BrandContext, type CampaignWriter } from "./write
 
 export const GenerateBody = z.object({ brief: CampaignBrief });
 export const EditAssetBody = z.object({ content: z.string().min(1) });
+export const RegenerateBody = z.object({ guidance: z.string().trim().max(300).optional() });
 export const ReviewBody = z.object({ decision: z.enum(["approved", "rejected"]) });
 export const DecisionBody = z.object({ decision: z.enum(["approved", "rejected"]), decidedBy: z.string().min(1), note: z.string().trim().max(500).optional() });
 
@@ -76,6 +77,60 @@ export class CampaignsService {
       const output = { error: e instanceof Error ? e.message : String(e) };
       this.runs.finish(workspaceId, runId, "failed", output);
       return { runId, status: "failed" as const, reused: false, output };
+    }
+  }
+
+  /** Copy being rewritten right now, so a double click cannot start two rewrites of one campaign. */
+  private readonly rewriting = new Set<string>();
+
+  /**
+   * Rewrites all the copy of a draft with the AI, keeping the plan. It goes through the same brand checks and length
+   * repair as the first draft, and the current copy is only replaced when the new copy passes them.
+   */
+  async regenerateContent(workspaceId: string, campaignId: string, guidance?: string) {
+    const campaign = this.campaignOrThrow(workspaceId, campaignId);
+    const brief = campaign.brief as CampaignBrief | null;
+    const plan = campaign.plan as CampaignPlan | null;
+    if (!brief || !plan) throw new UnprocessableEntityException("Only campaigns created here can have their copy rewritten.");
+    if (campaign.status !== "draft") throw new ConflictException("Only a draft can be rewritten. Approved copy stays as it is.");
+    if (this.rewriting.has(campaignId)) throw new ConflictException("The copy of this campaign is already being rewritten.");
+    const product = this.db.select().from(schema.products).where(eq(schema.products.workspaceId, workspaceId)).all()
+      .find((p) => norm(p.name) === norm(brief.product) || p.id === brief.product);
+    if (!product) throw new UnprocessableEntityException(`The product "${brief.product}" no longer exists, so the copy cannot be rewritten.`);
+
+    this.rewriting.add(campaignId);
+    const runId = this.runs.start(workspaceId, "campaign_rewrite", { campaignId, guidance: guidance ?? null }, `rewrite:${campaignId}:${randomUUID()}`);
+    try {
+      const previous = this.db.select({ c: schema.campaignAssets.content }).from(schema.campaignAssets)
+        .where(and(eq(schema.campaignAssets.workspaceId, workspaceId), eq(schema.campaignAssets.campaignId, campaignId))).all().map((a) => a.c);
+      const graph = buildCampaignGraph({
+        brief, writer: this.writer, plan, guidance: guidance || undefined, previous,
+        loadContext: () => this.loadContext(workspaceId, runId, product.id),
+      });
+      const s = await graph.invoke({});
+      if (!s.content || !s.contentViolations.every(isSoftViolation)) {
+        const errors = s.contentErrors.length ? s.contentErrors : ["no copy was produced"];
+        this.runs.finish(workspaceId, runId, "failed", { contentErrors: errors, contentAttempts: s.contentAttempts });
+        throw new UnprocessableEntityException({ message: "The AI could not write copy that follows your brand rules, so your current copy was kept. Try again, or change the request.", violations: errors });
+      }
+      const assets = s.content.assets;
+      this.db.transaction((tx) => {
+        tx.delete(schema.campaignAssets).where(and(eq(schema.campaignAssets.workspaceId, workspaceId), eq(schema.campaignAssets.campaignId, campaignId))).run();
+        if (assets.length)
+          tx.insert(schema.campaignAssets).values(assets.map((a) => ({
+            id: randomUUID(), workspaceId, campaignId, kind: a.kind, variant: `${a.channel}:${a.variant}`, content: a.content, status: "draft" as const,
+          }))).run();
+        // The waiting approval request quotes how many pieces there are.
+        const open = this.approvalsFor(workspaceId, campaignId).find((a) => a.status === "pending");
+        if (open) tx.update(schema.approvals).set({ summary: `Approve campaign "${campaign.name}" (${assets.length} draft assets). Approval does not publish anything.` }).where(eq(schema.approvals.id, open.id)).run();
+      });
+      this.runs.finish(workspaceId, runId, "succeeded", { assets: assets.length, ...(s.shortened.length ? { shortened: s.shortened } : {}) });
+      return this.get(workspaceId, campaignId);
+    } catch (e) {
+      if (!(e instanceof UnprocessableEntityException)) this.runs.finish(workspaceId, runId, "failed", { error: e instanceof Error ? e.message : String(e) });
+      throw e;
+    } finally {
+      this.rewriting.delete(campaignId);
     }
   }
 

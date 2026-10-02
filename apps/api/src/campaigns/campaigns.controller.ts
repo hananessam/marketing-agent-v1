@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards } 
 import { z } from "zod";
 import { WorkspaceGuard, WorkspaceId } from "../common/workspace.guard";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
-import { CampaignsService, DecisionBody, EditAssetBody, GenerateBody, ReviewBody } from "./campaigns.service";
+import { CampaignsService, DecisionBody, EditAssetBody, GenerateBody, RegenerateBody, ReviewBody } from "./campaigns.service";
 
 @Controller()
 @UseGuards(WorkspaceGuard)
@@ -22,6 +22,12 @@ export class CampaignsController {
   @Get("campaigns/:id")
   get(@WorkspaceId() ws: string, @Param("id") id: string) {
     return this.campaigns.get(ws, id);
+  }
+
+  /** Rewrite all the copy of a draft with the AI (optionally with a note on what to change). Slow: waits for the model. */
+  @Post("campaigns/:id/regenerate-content")
+  regenerate(@WorkspaceId() ws: string, @Param("id") id: string, @Body(new ZodValidationPipe(RegenerateBody)) body: z.infer<typeof RegenerateBody>) {
+    return this.campaigns.regenerateContent(ws, id, body.guidance);
   }
 
   @Get("campaigns/:id/performance")

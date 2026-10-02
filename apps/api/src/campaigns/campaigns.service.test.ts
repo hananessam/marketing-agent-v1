@@ -362,3 +362,88 @@ describe("campaign performance", () => {
     expect(() => make({}).svc.performance("w", "p2")).toThrow(/not found/);
   });
 });
+
+
+describe("rewriting the copy with the AI", () => {
+  const draft = async (svc: CampaignsService) => ((await svc.generate("w", brief)).output as { campaignId: string; approvalId: string });
+  const texts = (svc: CampaignsService, id: string) => svc.get("w", id).assets.map((a) => a.content).sort();
+
+  it("replaces all the copy, keeps the same campaign and plan, and does not plan again", async () => {
+    let seen: Parameters<CampaignWriter["content"]>[0] | undefined;
+    const { svc, calls } = make({});
+    const { campaignId, approvalId } = await draft(svc);
+    const before = svc.get("w", campaignId);
+    const { svc: svc2, calls: calls2 } = make({ content: async (i) => { seen = i; return { assets: [asset("A", "Fresh angle one"), asset("B", "Fresh angle two"), asset("C", "Third idea")] }; } });
+    const after = await svc2.regenerateContent("w", campaignId, "Make it more playful");
+
+    expect(after.id).toBe(campaignId);
+    expect(after.status).toBe("draft");
+    expect(after.plan).toEqual(before.plan);
+    expect(texts(svc2, campaignId)).toEqual(["Fresh angle one", "Fresh angle two", "Third idea"]);
+    expect(after.assets.every((a) => a.status === "draft")).toBe(true);
+    expect(calls.plan).toBe(1);
+    expect(calls2.plan).toBe(0); // the plan is reused, not rewritten
+    expect(seen?.guidance).toBe("Make it more playful");
+    expect(seen?.previous).toEqual(expect.arrayContaining(["Plan your week", "Your week, planned"]));
+    // the waiting approval now quotes the new count, and is still the same request
+    const pending = svc2.listApprovals("w", "pending");
+    expect(pending.map((a) => a.id)).toEqual([approvalId]);
+    expect(pending[0].summary).toContain("3 draft assets");
+  });
+
+  it("also replaces copy the person had edited by hand", async () => {
+    const { svc } = make({});
+    const { campaignId } = await draft(svc);
+    const first = svc.get("w", campaignId).assets[0];
+    await svc.editAsset("w", campaignId, first.id, "My hand-written line");
+    expect(texts(svc, campaignId)).toContain("My hand-written line");
+    await make({ content: async () => ({ assets: [asset("A", "Rewritten one"), asset("B", "Rewritten two")] }) }).svc.regenerateContent("w", campaignId);
+    expect(texts(svc, campaignId)).toEqual(["Rewritten one", "Rewritten two"]);
+  });
+
+  it("follows the same brand rules as the first draft, and keeps the current copy when the new copy breaks them", async () => {
+    const { svc } = make({});
+    const { campaignId } = await draft(svc);
+    const feedback: (string[] | undefined)[] = [];
+    const bad = make({ content: async (i) => { feedback.push(i.feedback); return { assets: [asset("A", "Guaranteed results today"), asset("B", "Guaranteed results now")] }; } });
+    const err = await bad.svc.regenerateContent("w", campaignId).catch((e) => e);
+    expect(err.getStatus()).toBe(422);
+    expect(JSON.stringify(err.getResponse())).toMatch(/kept/);
+    expect(feedback).toHaveLength(3); // it tried again, with feedback, before giving up
+    expect(feedback.slice(1).every((f) => f?.length)).toBe(true);
+    expect(texts(svc, campaignId)).toEqual(["Plan your week", "Your week, planned"]);
+    // and nothing is stuck: it can be tried again
+    await make({}).svc.regenerateContent("w", campaignId);
+  });
+
+  it("repairs over-long lines like a first draft does", async () => {
+    const { svc } = make({});
+    const { campaignId } = await draft(svc);
+    const long = "This headline is far too long to fit"; // over Google's 30
+    const w = make({
+      content: async () => ({ assets: [asset("A", long), asset("B", "Short and fine")] }),
+      shorten: async () => ["Short headline here"],
+    });
+    await w.svc.regenerateContent("w", campaignId);
+    expect(texts(svc, campaignId)).toEqual(["Short and fine", "Short headline here"]);
+  });
+
+  it("only works on drafts created here, in your own workspace, one rewrite at a time", async () => {
+    const { svc } = make({});
+    const { campaignId } = await draft(svc);
+    await expect(svc.regenerateContent("other", campaignId)).rejects.toThrow(/not found/i);
+    db.insert(schema.campaigns).values({ id: "synced", workspaceId: "w", name: "Synced", channel: "meta_ads", status: "draft", source: "meta_ads" }).run();
+    await expect(svc.regenerateContent("w", "synced")).rejects.toThrow(/created here/);
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow = make({ content: async () => { await gate; return goodDraft(); } });
+    const first = slow.svc.regenerateContent("w", campaignId);
+    await expect(slow.svc.regenerateContent("w", campaignId)).rejects.toThrow(/already being rewritten/);
+    release();
+    await first;
+
+    db.update(schema.campaigns).set({ status: "approved" }).where(eq(schema.campaigns.id, campaignId)).run();
+    await expect(svc.regenerateContent("w", campaignId)).rejects.toThrow(/Only a draft/);
+  });
+});

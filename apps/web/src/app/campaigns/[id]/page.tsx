@@ -7,6 +7,7 @@ import { useState } from "react";
 import { ApiError, api, errorDetails } from "@/lib/api";
 import { friendlyIssue, label } from "@/lib/format";
 import type { Asset, CampaignDetail, Company } from "@/lib/types";
+import { RegenerateCopy } from "@/components/regenerate-copy";
 import { CampaignPerformanceView } from "@/components/campaign-performance";
 import { MetaSettingsFields, PostingNote, PostingResult, postToMeta, useMetaForm, usePublishing, whyNotPosting } from "@/components/meta-posting";
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass } from "@/components/ui";
@@ -80,6 +81,8 @@ function Draft({ c, id, setPostError }: { c: CampaignDetail; id: string; setPost
         Read the copy below. Edit anything you don&apos;t like and remove what you don&apos;t want, then approve it.
         {c.plan && <> The idea behind it: <span className="italic">{c.plan.keyMessage}</span></>}
       </p>
+
+      <RegenerateCopy campaignId={id} />
 
       {[...group(live)].map(([channel, assets]) => (
         <Card key={channel} title={CHANNEL[channel] ?? label(channel)}>

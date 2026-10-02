@@ -12,6 +12,11 @@ export type CampaignDeps = {
   brief: CampaignBrief;
   loadContext: () => Promise<BrandContext>;
   writer: CampaignWriter;
+  /** Rewriting only the copy: start from this plan instead of planning again. */
+  plan?: CampaignPlan;
+  /** What the reviewer asked to change, and the wording to move away from. Only used with `plan`. */
+  guidance?: string;
+  previous?: string[];
 };
 
 const State = Annotation.Root({
@@ -48,14 +53,14 @@ function checkPlan(plan: CampaignPlan, brief: CampaignBrief, brand: BrandRules):
 
 export function buildCampaignGraph(deps: CampaignDeps) {
   return new StateGraph(State)
-    .addNode("load_context", async () => ({ context: await deps.loadContext(), planAttempts: 0, contentAttempts: 0, repairAttempts: 0, planErrors: [], contentErrors: [], contentViolations: [], shortened: [] }))
+    .addNode("load_context", async () => ({ context: await deps.loadContext(), plan: deps.plan, planAttempts: 0, contentAttempts: 0, repairAttempts: 0, planErrors: [], contentErrors: [], contentViolations: [], shortened: [] }))
     .addNode("write_plan", async (s) => ({
       plan: await deps.writer.plan({ brief: deps.brief, context: s.context, feedback: s.planErrors.length ? s.planErrors : undefined }),
       planAttempts: s.planAttempts + 1,
     }))
     .addNode("check_plan", (s) => ({ planErrors: checkPlan(s.plan!, deps.brief, brandRules(s.context.brand)) }))
     .addNode("write_content", async (s) => ({
-      content: await deps.writer.content({ brief: deps.brief, plan: s.plan!, context: s.context, feedback: s.contentErrors.length ? s.contentErrors : undefined }),
+      content: await deps.writer.content({ brief: deps.brief, plan: s.plan!, context: s.context, feedback: s.contentErrors.length ? s.contentErrors : undefined, guidance: deps.guidance, previous: deps.previous }),
       contentAttempts: s.contentAttempts + 1,
     }))
     .addNode("check_content", (s) => {
@@ -86,7 +91,7 @@ export function buildCampaignGraph(deps: CampaignDeps) {
       return { content: { assets }, shortened: log, repairAttempts: s.repairAttempts + 1 };
     })
     .addEdge(START, "load_context")
-    .addEdge("load_context", "write_plan")
+    .addConditionalEdges("load_context", () => (deps.plan ? "write_content" : "write_plan"))
     .addEdge("write_plan", "check_plan")
     .addConditionalEdges("check_plan", (s) => (!s.planErrors.length ? "write_content" : s.planAttempts < MAX_ATTEMPTS ? "write_plan" : END))
     .addEdge("write_content", "check_content")
