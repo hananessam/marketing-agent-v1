@@ -1,6 +1,7 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { CampaignPlan, type CampaignBrief } from "@marketing/shared";
-import { ContentDraft } from "./content.schema";
+import { z } from "zod";
+import { ContentDraft, type ContentAsset } from "./content.schema";
 
 export type BrandContext = {
   brand: { voice: string; approvedClaims: string[]; prohibited: string[]; allowedDomains: string[] } | null;
@@ -11,6 +12,11 @@ export type BrandContext = {
 export interface CampaignWriter {
   plan(input: { brief: CampaignBrief; context: BrandContext; feedback?: string[] }): Promise<CampaignPlan>;
   content(input: { brief: CampaignBrief; plan: CampaignPlan; context: BrandContext; feedback?: string[] }): Promise<ContentDraft>;
+  /**
+   * Several shorter rewrites of one line that is over its length limit. The caller measures them and picks one, so the
+   * model is never trusted to count characters.
+   */
+  shorten(input: { asset: ContentAsset; limit: number; brief: CampaignBrief; context: BrandContext; siblings: string[] }): Promise<string[]>;
 }
 export const CAMPAIGN_WRITER = Symbol("CAMPAIGN_WRITER");
 
@@ -43,10 +49,28 @@ export class OpenAIWriter implements CampaignWriter {
       { role: "system", content: `You are a marketing copywriter.\n${RULES}
 - For every channel in the brief, write at least 2 distinct variants (labelled "A", "B", ...) of each content kind.
 - Valid kinds per channel: google_ads: ad_headline, ad_description, cta; meta_ads: ad_headline, ad_description, social_post, cta.
+- Aim for these lengths (characters, spaces count): Google Ads headline 18-27, description 60-84; Meta headline 25-36, description 80-115; button text under 25; social post under 480.
 - Hard length limits in characters: google_ads ad_headline 30 / ad_description 90; meta_ads ad_headline 40 / ad_description 125; cta 40; social_post 600. Count characters carefully and aim for about 80% of the limit (for example 24 characters or fewer for a Google Ads headline) so nothing goes over.
 - List every approved claim you rely on in claimsUsed (verbatim); use [] if none.` },
       { role: "user", content: `Write the content variants.\n\nBRIEF:\n${JSON.stringify(brief)}\n\nPLAN:\n${JSON.stringify(plan)}\n\nCONTEXT:\n${JSON.stringify(context)}${feedbackText(feedback)}` },
     ]);
     return ContentDraft.parse(res);
+  }
+
+  async shorten({ asset, limit, brief, context, siblings }: Parameters<CampaignWriter["shorten"]>[0]) {
+    apiCheck();
+    const Candidates = z.object({ candidates: z.array(z.string()) });
+    const model = new ChatOpenAI({ model: modelName() }).withStructuredOutput(Candidates, { name: "shorter_versions" });
+    const res = await model.invoke([
+      { role: "system", content: `You tighten marketing copy to fit a hard character limit.\n${RULES}
+- Keep the meaning, the brand voice and the call to action. Do not add any new claim, number, offer or link.
+- Spaces and punctuation count as characters.
+- Return 8 clearly different rewrites. Each must be at most ${limit} characters and ideally between ${Math.floor(limit * 0.6)} and ${limit - 2}.` },
+      { role: "user", content: JSON.stringify({
+        channel: asset.channel, kind: asset.kind, limit, current: asset.content, currentLength: asset.content.length,
+        mustCutAtLeast: asset.content.length - limit, otherVariantsToStayDifferentFrom: siblings, brandVoice: context.brand?.voice, approvedClaims: context.brand?.approvedClaims, goal: brief.objective,
+      }) },
+    ]);
+    return Candidates.parse(res).candidates;
   }
 }

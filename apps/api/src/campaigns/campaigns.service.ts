@@ -62,7 +62,7 @@ export class CampaignsService {
       const onlyFitProblems = s.contentViolations.every(isSoftViolation);
       if (s.plan && s.content && !s.planErrors.length && onlyFitProblems) {
         const saved = this.save(workspaceId, runId, brief, s.plan, s.content.assets);
-        const output = { campaignId: saved.campaignId, approvalId: saved.approvalId, ...(s.contentViolations.length ? { needsFixes: s.contentErrors } : {}) };
+        const output = { campaignId: saved.campaignId, approvalId: saved.approvalId, ...(s.contentViolations.length ? { needsFixes: s.contentErrors } : {}), ...(s.shortened.length ? { shortened: s.shortened } : {}) };
         this.runs.finish(workspaceId, runId, "awaiting_approval", output);
         return { runId, status: "awaiting_approval" as const, reused: false, output };
       }

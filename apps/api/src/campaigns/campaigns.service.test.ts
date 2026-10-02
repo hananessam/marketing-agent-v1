@@ -27,10 +27,11 @@ let runs: RunsService;
 let tools: ToolRunnerService;
 
 function make(writer: Partial<CampaignWriter> & { content?: CampaignWriter["content"] }) {
-  const calls = { plan: 0, content: 0, feedback: [] as (string[] | undefined)[] };
+  const calls = { plan: 0, content: 0, feedback: [] as (string[] | undefined)[], shorten: [] as { limit: number; current: string; siblings: string[] }[] };
   const full: CampaignWriter = {
     plan: async () => { calls.plan++; return plan(); },
     content: async (i) => { calls.content++; calls.feedback.push(i.feedback); return goodDraft(); },
+    shorten: async (i) => { calls.shorten.push({ limit: i.limit, current: i.asset.content, siblings: i.siblings }); return []; },
     ...writer,
   };
   return { svc: new CampaignsService(db, tools, runs, full, new ActionsService(db)), calls };
@@ -109,18 +110,62 @@ describe("fit problems (too long) are fixable, not fatal", () => {
   const LONG = "A headline that is far too long for an ad because it just keeps going and going";
   const longDraft = (): ContentDraft => ({ assets: [asset("A", LONG), asset("B", `${LONG} again`)] });
 
-  it("retries up to three times with the exact text and overage, then saves the draft with the problems flagged", async () => {
-    const { svc, calls } = make({ content: async (i) => { calls.content++; calls.feedback.push(i.feedback); return longDraft(); } });
+  it("fixes only the over-length lines with targeted rewrites chosen by measured length, without regenerating the draft", async () => {
+    const GOOD = "Plan faster, ship sooner"; // 24 characters
+    const { svc, calls } = make({
+      content: async () => { calls.content++; return { assets: [asset("A", "Plan your week"), asset("B", LONG)] }; },
+      shorten: async (i) => { calls.shorten.push({ limit: i.limit, current: i.asset.content, siblings: i.siblings }); return ["Still far too long to fit in a Google Ads headline", GOOD]; },
+    });
     const res = await svc.generate("w", brief);
     expect(res.status).toBe("awaiting_approval");
-    expect(calls.content).toBe(3);
-    expect(calls.feedback[1]?.join(" ")).toMatch(/shorten by at least \d+/);
-    expect(calls.feedback[1]?.join(" ")).toContain(LONG.slice(0, 40));
+    expect(calls.content).toBe(1); // the draft was not rewritten
+    expect(calls.shorten).toEqual([{ limit: 30, current: LONG, siblings: ["Plan your week"] }]); // only the offending line, told its limit and its sibling
+    const out = res.output as { campaignId: string; needsFixes?: string[]; shortened: { where: string; from: number; to: number }[] };
+    expect(out.needsFixes).toBeUndefined();
+    expect(out.shortened).toEqual([{ where: "google_ads/ad_headline/B", from: LONG.length, to: GOOD.length }]);
+    const saved = svc.get("w", out.campaignId).assets;
+    expect(saved.find((a) => a.variant.endsWith(":B"))).toMatchObject({ content: GOOD, issues: [] });
+    expect(saved.find((a) => a.variant.endsWith(":A"))!.content).toBe("Plan your week"); // untouched
+  });
+
+  it("never accepts a rewrite that breaks a brand rule, repeats a sibling, is empty or is still too long", async () => {
+    const { svc } = make({
+      content: async () => ({ assets: [asset("A", "Plan your week"), asset("B", LONG)] }),
+      shorten: async () => ["Guaranteed results now", "Plan your week", "x".repeat(31), "   ", "  Short and sweet  "],
+    });
+    const out = (await svc.generate("w", brief)).output as { campaignId: string };
+    expect(svc.get("w", out.campaignId).assets.find((a) => a.variant.endsWith(":B"))!.content).toBe("Short and sweet");
+  });
+
+  it("gives up after two bounded rounds and then flags the line for a person, instead of looping or failing", async () => {
+    const { svc, calls } = make({
+      content: async () => { calls.content++; return longDraft(); },
+      shorten: async (i) => { calls.shorten.push({ limit: i.limit, current: i.asset.content, siblings: i.siblings }); return ["Another far too long attempt that goes on and on"]; },
+    });
+    const res = await svc.generate("w", brief);
+    expect(res.status).toBe("awaiting_approval");
+    expect(calls.content).toBe(1);
+    expect(calls.shorten).toHaveLength(4); // 2 offending lines x 2 rounds
     const out = res.output as { campaignId: string; needsFixes: string[] };
     expect(out.needsFixes).toHaveLength(2);
-    const c = svc.get("w", out.campaignId);
-    expect(c.assets).toHaveLength(2);
-    expect(c.assets.every((a) => a.issues.some((x) => x.startsWith("too_long")))).toBe(true);
+    expect(svc.get("w", out.campaignId).assets.every((a) => a.issues.some((x) => x.startsWith("too_long")))).toBe(true);
+  });
+
+  it("a rewrite that errors out does not fail the draft", async () => {
+    const { svc } = make({ content: async () => longDraft(), shorten: async () => { throw new Error("model unavailable"); } });
+    const res = await svc.generate("w", brief);
+    expect(res.status).toBe("awaiting_approval");
+    expect((res.output as { needsFixes: string[] }).needsFixes).toHaveLength(2);
+  });
+
+  it("repairs each offending line independently and keeps the ones that already fit", async () => {
+    const { svc, calls } = make({
+      content: async () => ({ assets: [asset("A", LONG), asset("B", "Fits fine"), asset("C", `${LONG} v3`)] }),
+      shorten: async (i) => { calls.shorten.push({ limit: i.limit, current: i.asset.content, siblings: i.siblings }); return [i.asset.content.endsWith("v3") ? "Third option works" : "First option works"]; },
+    });
+    const out = (await svc.generate("w", brief)).output as { campaignId: string };
+    expect(calls.shorten).toHaveLength(2); // "Fits fine" was never sent for rewriting
+    expect(svc.get("w", out.campaignId).assets.map((a) => a.content).sort()).toEqual(["Fits fine", "First option works", "Third option works"].sort());
   });
 
   it("will not approve flawed copy, but approves it once a person has shortened it", async () => {
