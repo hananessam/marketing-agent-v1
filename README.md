@@ -199,9 +199,9 @@ The agent can propose things to *do*, not just things to read. Everything goes t
 | Add a task | "Add to my tasks" on any recommendation | none (internal, harmless) | Runs immediately; appears on **Tasks** |
 | Pause a campaign | "Propose pausing" on a recommendation | required | **Shadow**: recorded, not applied |
 | Change a budget (max 10% at a time) | "Propose a budget change" | required | **Shadow** |
-| Publish a campaign | **Approve campaign** (Meta copy) | required (the Approve button is the approval) | With `EXECUTION_MODE=live` and posting allowed: **paused ads are created on Meta**. Otherwise **shadow**: recorded, not applied |
+| Publish a campaign | **Approve campaign** (Meta copy) | required (the Approve button is the approval) **Demo mode (the default): paused ads are created in the built-in ads sandbox.** With `EXECUTION_MODE=live` and posting allowed: paused ads are created on Meta. With `EXECUTION_MODE=shadow`: recorded, not applied |
 
-**Shadow mode** is the first stage of the staged rollout in the original plan (read-only, then shadow, then approval, then limited autonomy). Your Meta and Google connections are read-only, so approving an external action records *exactly what would have happened* and changes nothing outside this app. The inbox says so before you decide, and Activity labels these "Recorded, not applied". `EXECUTION_MODE=live` does nothing extra yet: a real action type needs a live executor (one function in `apps/api/src/actions/actions.service.ts`) plus write permission on the platform, such as Meta `ads_management`. Until then it falls back to shadow and says why.
+**Shadow mode** (`EXECUTION_MODE=shadow`) is the first stage of the staged rollout in the original plan (read-only, then shadow, then approval, then limited autonomy). Your Meta and Google connections are read-only, so approving an external action records *exactly what would have happened* and changes nothing outside this app. The inbox says so before you decide, and Activity labels these "Recorded, not applied". `EXECUTION_MODE=live` does nothing extra yet: a real action type needs a live executor (one function in `apps/api/src/actions/actions.service.ts`) plus write permission on the platform, such as Meta `ads_management`. Until then it falls back to shadow and says why.
 
 How it stays safe:
 - Details are validated (typed, bounded) and a **preview of what would happen** is written when the action is proposed, so you approve something concrete.
@@ -212,9 +212,21 @@ How it stays safe:
 
 ---
 
-## Posting to Meta
+## Demo mode and the ads sandbox (the default)
 
-When you approve a campaign that has Facebook & Instagram copy, the app can create the ads in your Meta ad account for you. It is **off by default** and, when on, it only ever creates things **paused**.
+`EXECUTION_MODE` picks where an approved campaign is posted:
+
+| `EXECUTION_MODE` | Where approving posts | Needs |
+|---|---|---|
+| unset or `demo` (**default**) | The built-in **ads sandbox**: a pretend ad platform. No network calls, no login, nothing real is created and nothing can spend. | nothing |
+| `live` | Your real Meta ad account (see below). | Meta connection with posting allowed |
+| `shadow` | Nowhere: the approval is only recorded. | nothing |
+
+In demo mode the sandbox behaves like a real platform: the same checks apply (daily budget between 1 and 50 USD, landing page must be https on one of your own websites, a Page must be chosen), ads are created **paused**, and a campaign cannot be posted twice. It creates one campaign and ad set plus one ad per variant on Meta, and one ad per variant for Google Ads (which the live mode cannot post yet). The campaign page lists the pretend ad ids it created, and a **Demo mode** badge shows in the top bar. The live Meta code is unchanged and is used only when `EXECUTION_MODE=live`.
+
+## Posting to Meta (live mode)
+
+With `EXECUTION_MODE=live`, approving a campaign that has Facebook & Instagram copy creates the ads in your Meta ad account. It only ever creates things **paused**.
 
 **What gets created:** one campaign (objective *Traffic*), one ad set (the daily budget and country you enter) and one ad per variant (A, B, …), each using that variant's own headline, description, post text and button. Links carry `utm_source/medium/campaign/content` tags so Google Analytics can attribute the visits. Nothing spends until *you* switch the ads on in Ads Manager. After creating them the app asks Meta to confirm each one really is paused (and pauses it if not).
 
@@ -232,7 +244,7 @@ When you approve a campaign that has Facebook & Instagram copy, the app can crea
 - A campaign that has already been posted cannot be posted again, and identical requests are treated as one.
 - The daily budget is capped (`MAX_DAILY_BUDGET`), the landing page must be https on one of your own websites, and the Facebook Page must be one the connected login manages. All of this is checked when you ask and again when it runs.
 - The access token travels in a header, never in a URL, and is never written to logs or results.
-- Without the extra permissions, or with `EXECUTION_MODE` unset, approving behaves exactly as before: the copy is saved and nothing is posted.
+- Without the extra permissions, live mode refuses to post and says why. With `EXECUTION_MODE` unset you are in demo mode, which never touches Meta.
 
 **Limits (today):** Google Ads is not supported (it needs a Google Ads developer token, an extra sign-in permission and keyword generation), so that copy stays on the campaign page with Copy buttons. Ads are link ads with text only (no image or video, so Meta shows the landing page's preview image), optimised for clicks (a *Traffic* campaign), targeted by country only. Conversion tracking and richer targeting are not set up. Meta's API changes over time; if Meta rejects a request, the exact reason is shown on the campaign page.
 

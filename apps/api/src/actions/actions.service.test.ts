@@ -14,7 +14,7 @@ const approvals = (ws = "w") => db.select().from(schema.approvals).where(eq(sche
 const campaignRow = (id: string) => db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get()!;
 
 beforeEach(async () => {
-  delete process.env.EXECUTION_MODE;
+  process.env.EXECUTION_MODE = "shadow"; // these tests are about recording only; demo mode has its own tests
   db = await createTestDb();
   actions = new ActionsService(db);
   inbox = new CampaignsService(db, {} as never, {} as never, {} as never, actions);

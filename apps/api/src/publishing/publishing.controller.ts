@@ -1,14 +1,14 @@
 import { BadGatewayException, ConflictException, Controller, Get, UseGuards } from "@nestjs/common";
 import { WorkspaceGuard, WorkspaceId } from "../common/workspace.guard";
 import { ConnectorAuthError, ConnectorError } from "../connectors/http";
-import { PublishingService } from "./publishing.service";
+import { PublishingRouter } from "./publishing.router";
 
 @Controller("publishing")
 @UseGuards(WorkspaceGuard)
 export class PublishingController {
-  constructor(private readonly publishing: PublishingService) {}
+  constructor(private readonly publishing: PublishingRouter) {}
 
-  /** Cheap: no calls to Meta. What is switched on, and what is missing. */
+  /** Cheap: no calls to Meta (demo mode never calls anything). What is switched on, and what is missing. */
   @Get("status")
   status(@WorkspaceId() ws: string) {
     return this.publishing.status(ws);

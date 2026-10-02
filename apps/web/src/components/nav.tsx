@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import type { PublishingStatus } from "@/lib/types";
 
 const LINKS = [
   { href: "/", label: "Home" },
@@ -12,6 +15,7 @@ const LINKS = [
 
 export function TopNav() {
   const path = usePathname();
+  const mode = useQuery({ queryKey: ["publishing-status"], queryFn: () => api<PublishingStatus>("/publishing/status"), staleTime: 60_000 }).data?.mode;
   return (
     <header className="border-b border-zinc-200 dark:border-zinc-800">
       <div className="mx-auto flex max-w-3xl items-center gap-6 px-4 py-3">
@@ -27,6 +31,7 @@ export function TopNav() {
             );
           })}
         </nav>
+        {mode === "demo" && <span className="ml-auto rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-900 dark:bg-sky-950 dark:text-sky-200" title="Ads are posted to a built-in sandbox. Nothing real is posted.">Demo mode</span>}
       </div>
     </header>
   );

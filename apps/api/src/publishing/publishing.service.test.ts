@@ -260,7 +260,8 @@ describe("approving posts to Meta (paused) in live mode", () => {
   });
 });
 
-describe("shadow mode (the default)", () => {
+describe("shadow mode", () => {
+  beforeEach(() => { process.env.EXECUTION_MODE = "shadow"; });
   it("records what would happen and never calls Meta, even with everything connected", async () => {
     const r = await propose({ campaignId: "ready", meta: META });
     await approveLatest();

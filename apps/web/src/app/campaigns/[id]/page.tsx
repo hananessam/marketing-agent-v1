@@ -50,10 +50,12 @@ function Draft({ c, id, setPostError }: { c: CampaignDetail; id: string; setPost
 
   // Approving also creates the ads on Meta (paused), when that is switched on and the campaign has Meta copy.
   const hasMeta = live.some((a) => a.variant.startsWith("meta_ads:"));
-  const pub = usePublishing(hasMeta);
+  const hasGoogle = live.some((a) => a.variant.startsWith("google_ads:"));
+  const pub = usePublishing(hasMeta || hasGoogle, hasMeta);
   const company = useQuery({ queryKey: ["company"], queryFn: () => api<Company>("/company") });
   const form = useMetaForm(pub.details, company.data);
-  const posting = hasMeta && pub.ready && Boolean(pub.details);
+  // Live mode only posts Meta copy; the demo sandbox takes Google copy too.
+  const posting = pub.canPost && (hasMeta || pub.demo);
 
   const approve = useMutation({
     mutationFn: async () => {
@@ -64,7 +66,7 @@ function Draft({ c, id, setPostError }: { c: CampaignDetail; id: string; setPost
       // The campaign is approved from here on. If posting fails, say so clearly instead of undoing the approval.
       setPostError(null);
       if (posting) {
-        try { await postToMeta(id, form.payload()); } catch (e) { setPostError(e instanceof Error ? e.message : "Posting to Meta failed."); }
+        try { await postToMeta(id, hasMeta ? form.payload() : undefined); } catch (e) { setPostError(e instanceof Error ? e.message : "Posting to Meta failed."); }
       }
     },
     onSettled: () => { qc.invalidateQueries({ queryKey: ["campaign", id] }); qc.invalidateQueries({ queryKey: ["campaigns"] }); },
@@ -88,17 +90,17 @@ function Draft({ c, id, setPostError }: { c: CampaignDetail; id: string; setPost
       ))}
       {live.length === 0 && <Card><Empty>You removed all the copy. Go back and create a new campaign.</Empty></Card>}
 
-      {posting && pub.details && <MetaSettingsFields form={form} details={pub.details} />}
+      {posting && hasMeta && pub.details && <MetaSettingsFields form={form} details={pub.details} />}
       {hasMeta && !posting && !pub.loading && <PostingNote reason={whyNotPosting(pub.status)} />}
       {pub.detailsError && <ErrorBox error={pub.detailsError.message} />}
 
       <div className="sticky bottom-0 -mx-4 border-t border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
         {flawed > 0 && <p className="mb-2 text-sm text-amber-700 dark:text-amber-400">{flawed === 1 ? "One piece of copy needs" : `${flawed} pieces of copy need`} a quick fix before you can approve. They are highlighted above.</p>}
         {approve.error && <div className="mb-2"><ErrorBox error={approve.error.message} details={errorDetails(approve.error)} /></div>}
-        <Button onClick={() => approve.mutate()} disabled={approve.isPending || flawed > 0 || live.length === 0 || (posting && !form.valid)}>
-          {approve.isPending ? (posting ? "Approving and creating ads…" : "Approving…") : posting ? "Approve and create paused ads on Meta" : "Approve campaign"}
+        <Button onClick={() => approve.mutate()} disabled={approve.isPending || flawed > 0 || live.length === 0 || (posting && hasMeta && !form.valid)}>
+          {approve.isPending ? (posting ? "Approving and creating ads…" : "Approving…") : posting ? (pub.demo ? "Approve and create paused demo ads" : "Approve and create paused ads on Meta") : "Approve campaign"}
         </Button>
-        <span className="ml-3 text-xs text-zinc-500">{posting ? "The ads are created paused: nothing spends until you switch them on." : "Nothing is published or sent."}</span>
+        <span className="ml-3 text-xs text-zinc-500">{posting ? (pub.demo ? "Demo mode: ads go to a built-in sandbox. Nothing real is posted." : "The ads are created paused: nothing spends until you switch them on.") : "Nothing is published or sent."}</span>
       </div>
     </div>
   );
@@ -164,15 +166,16 @@ function Approved({ c, id, postError, setPostError }: { c: CampaignDetail; id: s
   const qc = useQueryClient();
   const items = c.assets.filter((a) => a.status === "approved");
   const hasMeta = items.some((a) => a.variant.startsWith("meta_ads:"));
+  const hasGoogle = items.some((a) => a.variant.startsWith("google_ads:"));
   const posted = c.publish?.status === "executed";
 
   // Offer (another) try when Meta copy has not been posted yet and posting is possible.
-  const pub = usePublishing(hasMeta && !posted);
+  const pub = usePublishing((hasMeta || hasGoogle) && !posted, hasMeta);
   const company = useQuery({ queryKey: ["company"], queryFn: () => api<Company>("/company") });
   const form = useMetaForm(pub.details, company.data);
-  const canRetry = hasMeta && !posted && pub.ready && Boolean(pub.details);
+  const canRetry = !posted && pub.canPost && (hasMeta || pub.demo);
   const retry = useMutation({
-    mutationFn: async () => { setPostError(null); await postToMeta(id, form.payload()); },
+    mutationFn: async () => { setPostError(null); await postToMeta(id, hasMeta ? form.payload() : undefined); },
     onError: (e) => setPostError(e instanceof Error ? e.message : "Posting to Meta failed."),
     onSettled: () => qc.invalidateQueries({ queryKey: ["campaign", id] }),
   });
@@ -184,10 +187,10 @@ function Approved({ c, id, postError, setPostError }: { c: CampaignDetail; id: s
 
       <PostingResult publish={c.publish} />
       {postError && !c.publish?.result?.error && <ErrorBox error="Your campaign is approved, but it could not be posted to Meta." details={[postError]} />}
-      {canRetry && pub.details && (
+      {canRetry && (hasMeta ? pub.details : true) && (
         <div className="space-y-3">
-          <MetaSettingsFields form={form} details={pub.details} />
-          <Button onClick={() => retry.mutate()} disabled={retry.isPending || !form.valid}>{retry.isPending ? "Creating ads…" : "Create paused ads on Meta"}</Button>
+          {hasMeta && pub.details && <MetaSettingsFields form={form} details={pub.details} />}
+          <Button onClick={() => retry.mutate()} disabled={retry.isPending || (hasMeta && !form.valid)}>{retry.isPending ? "Creating ads…" : pub.demo ? "Create paused demo ads" : "Create paused ads on Meta"}</Button>
         </div>
       )}
       {hasMeta && !posted && !canRetry && !pub.loading && <PostingNote reason={whyNotPosting(pub.status)} />}

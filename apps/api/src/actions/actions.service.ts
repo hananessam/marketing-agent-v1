@@ -4,6 +4,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { schema, type Db } from "../db";
 import { DB } from "../db/database.module";
+import { executionMode, type ExecutionMode } from "../publishing/mode";
 import { PUBLISHER, type ActionRow, type Outcome, type Publisher } from "../publishing/types";
 import { IS_EXTERNAL, PAYLOADS, POLICY_FOR, type ActionKind, type ProposeBody } from "./action-types";
 
@@ -23,9 +24,14 @@ export class ActionsService {
   private readonly log = new Logger(ActionsService.name);
   constructor(@Inject(DB) private readonly db: Db, @Optional() @Inject(PUBLISHER) private readonly publisher?: Publisher) {}
 
-  /** Shadow unless explicitly switched to live; even then only action types with a live executor are performed. */
-  get mode(): "shadow" | "live" {
-    return process.env.EXECUTION_MODE === "live" ? "live" : "shadow";
+  /** Demo (the ads sandbox) by default; "live" posts to the real platforms; "shadow" only records. */
+  get mode(): ExecutionMode {
+    return executionMode();
+  }
+
+  /** Whether publishing really goes somewhere: the sandbox in demo mode, the real platforms in live mode. */
+  private get posts() {
+    return this.mode !== "shadow" && Boolean(this.publisher);
   }
 
   // ------------------------------------------------------------------ propose
@@ -74,6 +80,7 @@ export class ActionsService {
   }
 
   private shadowNote() {
+    if (this.mode === "demo") return " (demo mode: nothing real will change)";
     return this.mode === "shadow" ? " (shadow mode: nothing outside this app will change)" : "";
   }
 
@@ -126,14 +133,14 @@ export class ActionsService {
       return { status: "executed", result: { taskId } };
     }
     // Publishing a campaign really posts (paused ads on Meta) only when live mode is on and a publisher is wired in.
-    if (action.type === "publish_campaign" && this.mode === "live" && this.publisher) return this.publisher.publish(action);
+    if (action.type === "publish_campaign" && this.posts) return this.publisher!.publish(action);
     const live = LIVE_EXECUTORS[action.type];
     if (this.mode === "live" && live) return live(action);
     return {
       status: "shadowed",
       result: {
         mode: "shadow", wouldDo: action.preview.summary,
-        why: this.mode === "live" ? "No live connection exists for this kind of action yet." : "Shadow mode is on.",
+        why: this.mode === "live" ? "No live connection exists for this kind of action yet." : this.mode === "demo" ? "Demo mode is on." : "Shadow mode is on.",
         note: "Nothing outside this app was changed.",
       },
     };
@@ -191,11 +198,11 @@ export class ActionsService {
         // Budget cap, landing page and permission checks live with the publisher (and run again when the action executes).
         this.publisher?.preflight(workspaceId, c.id, p.meta);
         // A campaign already created on Meta is not created again: a second post would duplicate the ads (and the spend once switched on).
-        if (this.mode === "live" && this.publisher && p.meta && this.postedToMeta(workspaceId, c.id)) {
+        if (this.posts && p.meta && this.postedToMeta(workspaceId, c.id)) {
           throw new ConflictException("This campaign has already been posted to Meta (paused). Manage it in Ads Manager.");
         }
-        const posting = p.meta && byChannel.has("meta_ads") && this.mode === "live" && this.publisher
-          ? ` · Meta: ${p.meta.dailyBudget} per day in ${p.meta.country}, created PAUSED` : "";
+        const posting = p.meta && byChannel.has("meta_ads") && this.posts
+          ? ` · Meta: ${p.meta.dailyBudget} per day in ${p.meta.country}, created PAUSED${this.mode === "demo" ? " (demo sandbox)" : ""}` : "";
         return {
           summary: `Publish "${c.name}": ${assets.length} pieces of approved copy on ${[...byChannel.keys()].join(", ")}${posting}`,
           details: { campaign: c.name, channels: [...byChannel].map(([channel, items]) => ({ channel, items })), ...(p.meta ? { meta: p.meta } : {}) },

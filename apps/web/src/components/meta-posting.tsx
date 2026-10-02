@@ -18,17 +18,23 @@ const COUNTRIES: [string, string][] = [
 export type MetaPayload = { dailyBudget: number; country: string; pageId: string; landingUrl: string };
 
 /** Whether approving can post to Meta right now, and everything the form needs. */
-export function usePublishing(enabled: boolean) {
+export function usePublishing(enabled: boolean, needsMeta = true) {
   const status = useQuery({ queryKey: ["publishing-status"], queryFn: () => api<PublishingStatus>("/publishing/status"), enabled });
-  const ready = Boolean(enabled && status.data && status.data.mode === "live" && status.data.meta.canPublish);
-  // Pages and currency come from Meta itself, so they are only fetched when posting is actually possible.
-  const details = useQuery({ queryKey: ["publishing-meta"], queryFn: () => api<MetaDetails>("/publishing/meta"), enabled: ready });
-  return { status: status.data, details: details.data, detailsError: details.error, ready, loading: status.isLoading || (ready && details.isLoading) };
+  const mode = status.data?.mode;
+  // Posting goes to the demo sandbox (default) or the real platforms (live); in shadow mode nothing is posted.
+  const ready = Boolean(enabled && status.data && (mode === "demo" || mode === "live") && status.data.meta.canPublish);
+  // Pages and currency come from the platform itself, so they are only fetched when Meta ads will really be created.
+  const details = useQuery({ queryKey: ["publishing-meta", mode], queryFn: () => api<MetaDetails>("/publishing/meta"), enabled: ready && needsMeta });
+  const demo = mode === "demo";
+  // Can the Approve button also post? Meta copy needs the ad settings loaded; Google copy only posts to the sandbox.
+  const canPost = ready && (needsMeta ? Boolean(details.data) : demo);
+  return { status: status.data, details: details.data, detailsError: details.error, ready, demo, canPost, loading: status.isLoading || (ready && needsMeta && details.isLoading) };
 }
 
 /** Why approving will not post, in plain words. Null when it will. */
 export function whyNotPosting(s: PublishingStatus | undefined): string | null {
   if (!s) return null;
+  if (s.mode === "demo") return null;
   if (!s.meta.connected) return "Connect your Meta Ads account in Settings to post there.";
   if (s.mode !== "live") return "Posting is switched off on the server, so approving only saves the copy.";
   if (!s.meta.canPublish) return 'Posting to Meta isn\'t allowed yet. Use "Allow posting" in Settings.';
@@ -75,7 +81,9 @@ export function MetaSettingsFields({ form, details }: { form: ReturnType<typeof 
     <div className="space-y-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
       <div>
         <p className="text-sm font-medium">Post to Meta (Facebook &amp; Instagram)</p>
-        <p className="text-xs text-zinc-500">Approving creates the ads in your account <strong>{details.meta.accountName}</strong>, <strong>paused</strong>. Nothing spends until you switch them on in Ads Manager.</p>
+        {details.mode === "demo"
+          ? <p className="text-xs text-zinc-500">Demo mode: approving creates the ads in the <strong>demo ad platform</strong>, <strong>paused</strong>. It is a built-in sandbox, so nothing real is posted and nothing can spend.</p>
+          : <p className="text-xs text-zinc-500">Approving creates the ads in your account <strong>{details.meta.accountName}</strong>, <strong>paused</strong>. Nothing spends until you switch them on in Ads Manager.</p>}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm"><span className="mb-1 block font-medium">Daily budget{details.currency ? ` (${details.currency})` : ""}</span>
@@ -102,16 +110,16 @@ export function MetaSettingsFields({ form, details }: { form: ReturnType<typeof 
 }
 
 /** Creates the publish request and approves it in one go: the person already confirmed by pressing the button. */
-export async function postToMeta(campaignId: string, meta: MetaPayload) {
+export async function postToMeta(campaignId: string, meta?: MetaPayload) {
   const proposed = await api<{ action: AgentAction; reused: boolean }>("/actions", {
-    method: "POST", body: { type: "publish_campaign", source: "campaign", sourceRef: campaignId, requestedBy: "dashboard", payload: { campaignId, meta } },
+    method: "POST", body: { type: "publish_campaign", source: "campaign", sourceRef: campaignId, requestedBy: "dashboard", payload: { campaignId, ...(meta ? { meta } : {}) } },
   });
   if (proposed.action.status === "awaiting_approval" && proposed.action.approvalId) {
     await api(`/approvals/${proposed.action.approvalId}/decision`, { method: "POST", body: { decision: "approved", decidedBy: "You" } });
   }
 }
 
-type Created = { outcome: string; campaignId: string; adIds: string[]; adsManagerUrl: string; dailyBudgetMinor: number; currency: string };
+type Created = { outcome: string; sandbox?: boolean; campaignId: string; adIds: string[]; ads?: { id: string; name: string; headline: string }[]; adsManagerUrl: string | null; dailyBudgetMinor: number; currency: string };
 
 /** What happened the last time this campaign was posted. */
 export function PostingResult({ publish }: { publish: PublishInfo | null }) {
@@ -126,11 +134,30 @@ export function PostingResult({ publish }: { publish: PublishInfo | null }) {
   if (publish.status === "shadowed" && !meta) {
     return <Card title="Not posted"><p className="text-sm text-zinc-500">This campaign was approved but nothing was posted: posting is switched off, or there was nothing to post to a connected platform.</p></Card>;
   }
+  const google = platforms.google_ads as unknown as Created | undefined;
+  if (publish.result?.mode === "demo" && (meta?.outcome === "created_paused" || google?.outcome === "created_paused")) {
+    const sections = [["Meta", meta], ["Google Ads", google]] as const;
+    return (
+      <Card title="Created in the demo ad platform, paused">
+        <p className="text-sm">This is a built-in sandbox, so <strong>nothing real was posted and nothing can spend</strong>. It shows what approving would create on a real account.</p>
+        <div className="mt-3 space-y-3">
+          {sections.map(([name, p]) => p?.outcome === "created_paused" && (
+            <div key={name}>
+              <p className="text-xs font-medium">{name}: {p.ads?.length ?? p.adIds.length} {(p.ads?.length ?? p.adIds.length) === 1 ? "ad" : "ads"}{name === "Meta" ? `, ${p.dailyBudgetMinor / 100} ${p.currency} a day` : ""}</p>
+              <ul className="mt-1 space-y-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+                {(p.ads ?? []).map((a) => <li key={a.id}><span className="font-mono">{a.id}</span> · {a.headline}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </Card>
+    );
+  }
   if (meta?.outcome === "created_paused") {
     return (
       <Card title="Created on Meta, paused">
         <p className="text-sm">{meta.adIds.length} {meta.adIds.length === 1 ? "ad is" : "ads are"} ready in your account. <strong>Nothing is spending yet.</strong> Review them and switch them on in Ads Manager when you&apos;re ready.</p>
-        <div className="mt-3"><a href={meta.adsManagerUrl} target="_blank" rel="noreferrer" className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Open in Ads Manager</a></div>
+        <div className="mt-3">{meta.adsManagerUrl && <a href={meta.adsManagerUrl} target="_blank" rel="noreferrer" className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Open in Ads Manager</a>}</div>
         {platforms.google_ads && <p className="mt-3 text-xs text-zinc-500">Google Ads isn&apos;t connected yet, so that copy wasn&apos;t posted. It is below, ready to copy.</p>}
       </Card>
     );

@@ -98,7 +98,12 @@ function PostingPanel({ connection }: { connection: Connection }) {
           {start.error && <div className="mt-2"><ErrorBox error={start.error.message} /></div>}
         </>
       )}
-      {s.mode !== "live" && (
+      {s.mode === "demo" && (
+        <p className="mt-3 rounded bg-sky-50 p-2 text-xs text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
+          Demo mode is on (the default): approving a campaign posts to a built-in ad sandbox, not to this account. To post for real, set <code>EXECUTION_MODE=live</code> in <code>apps/api/.env.local</code> and restart the API.
+        </p>
+      )}
+      {s.mode === "shadow" && (
         <p className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           Posting is switched off on the server, so approving only saves the copy. To switch it on, set <code>EXECUTION_MODE=live</code> in <code>apps/api/.env.local</code> and restart the API.
         </p>
