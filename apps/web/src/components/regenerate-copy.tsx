@@ -1,8 +1,10 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, errorDetails } from "@/lib/api";
+import type { GenerationProgress as Progress } from "@/lib/types";
+import { GenerationProgress } from "@/components/generation-progress";
 import { Button, ErrorBox, inputClass } from "@/components/ui";
 
 /** Asks the AI to write all the copy of a draft again. The new copy follows the same brand rules; if it can't, the current copy stays. */
@@ -11,8 +13,13 @@ export function RegenerateCopy({ campaignId }: { campaignId: string }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
 
+  // The panel names its own request so it can watch it while it runs.
+  const [progressKey, setProgressKey] = useState<string | null>(null);
+
   const rewrite = useMutation({
-    mutationFn: () => api(`/campaigns/${campaignId}/regenerate-content`, { method: "POST", body: note.trim() ? { guidance: note.trim() } : {} }),
+    mutationFn: (key: string) => api(`/campaigns/${campaignId}/regenerate-content`, {
+      method: "POST", headers: { "x-progress-key": key }, body: note.trim() ? { guidance: note.trim() } : {},
+    }),
     onSuccess: () => {
       setOpen(false);
       setNote("");
@@ -20,6 +27,15 @@ export function RegenerateCopy({ campaignId }: { campaignId: string }) {
       qc.invalidateQueries({ queryKey: ["campaigns"] });
     },
   });
+
+  const progress = useQuery({
+    queryKey: ["campaign-progress", progressKey],
+    queryFn: () => api<Progress>(`/campaigns/progress/${progressKey}`),
+    enabled: rewrite.isPending && progressKey !== null,
+    refetchInterval: 700,
+    refetchIntervalInBackground: true,
+  });
+  const start = () => { const key = crypto.randomUUID(); setProgressKey(key); rewrite.mutate(key); };
 
   if (!open) {
     return (
@@ -44,11 +60,11 @@ export function RegenerateCopy({ campaignId }: { campaignId: string }) {
         <textarea className={inputClass} rows={2} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} disabled={rewrite.isPending}
           placeholder="For example: more playful, focus on saving time, shorter" />
       </label>
+      {rewrite.isPending && <GenerationProgress events={progress.data?.events ?? []} />}
       {rewrite.error && <ErrorBox error={rewrite.error.message} details={errorDetails(rewrite.error)} />}
       <div className="flex items-center gap-3">
-        <Button onClick={() => rewrite.mutate()} disabled={rewrite.isPending}>{rewrite.isPending ? "Rewriting…" : "Rewrite the copy"}</Button>
+        <Button onClick={start} disabled={rewrite.isPending}>{rewrite.isPending ? "Rewriting…" : "Rewrite the copy"}</Button>
         <Button variant="secondary" onClick={() => { setOpen(false); rewrite.reset(); }} disabled={rewrite.isPending}>Cancel</Button>
-        {rewrite.isPending && <span className="text-xs text-zinc-500">This usually takes under a minute.</span>}
       </div>
     </div>
   );

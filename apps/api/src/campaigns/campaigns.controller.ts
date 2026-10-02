@@ -32,8 +32,8 @@ export class CampaignsController {
 
   /** Rewrite all the copy of a draft with the AI (optionally with a note on what to change). Slow: waits for the model. */
   @Post("campaigns/:id/regenerate-content")
-  regenerate(@WorkspaceId() ws: string, @Param("id") id: string, @Body(new ZodValidationPipe(RegenerateBody)) body: z.infer<typeof RegenerateBody>) {
-    return this.campaigns.regenerateContent(ws, id, body.guidance);
+  regenerate(@WorkspaceId() ws: string, @Param("id") id: string, @Headers("x-progress-key") progressKey: string | undefined, @Body(new ZodValidationPipe(RegenerateBody)) body: z.infer<typeof RegenerateBody>) {
+    return this.campaigns.regenerateContent(ws, id, body.guidance, progressKey);
   }
 
   @Get("campaigns/:id/performance")

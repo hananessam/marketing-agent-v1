@@ -105,7 +105,7 @@ export class CampaignsService {
    * Rewrites all the copy of a draft with the AI, keeping the plan. It goes through the same brand checks and length
    * repair as the first draft, and the current copy is only replaced when the new copy passes them.
    */
-  async regenerateContent(workspaceId: string, campaignId: string, guidance?: string) {
+  async regenerateContent(workspaceId: string, campaignId: string, guidance?: string, progressKey?: string) {
     const campaign = this.campaignOrThrow(workspaceId, campaignId);
     const brief = campaign.brief as CampaignBrief | null;
     const plan = campaign.plan as CampaignPlan | null;
@@ -118,11 +118,13 @@ export class CampaignsService {
 
     this.rewriting.add(campaignId);
     const runId = this.runs.start(workspaceId, "campaign_rewrite", { campaignId, guidance: guidance ?? null }, `rewrite:${campaignId}:${randomUUID()}`);
+    this.progress?.start(runId, progressKey ? { workspaceId, key: progressKey } : undefined);
     try {
       const previous = this.db.select({ c: schema.campaignAssets.content }).from(schema.campaignAssets)
         .where(and(eq(schema.campaignAssets.workspaceId, workspaceId), eq(schema.campaignAssets.campaignId, campaignId))).all().map((a) => a.c);
       const graph = buildCampaignGraph({
         brief, writer: this.writer, plan, guidance: guidance || undefined, previous,
+        onStep: (name) => this.progress?.begin(runId, "step", name) ?? (() => {}),
         loadContext: () => this.loadContext(workspaceId, runId, product.id),
       });
       const s = await graph.invoke({});
@@ -149,6 +151,7 @@ export class CampaignsService {
       throw e;
     } finally {
       this.rewriting.delete(campaignId);
+      this.progress?.finish(runId);
     }
   }
 

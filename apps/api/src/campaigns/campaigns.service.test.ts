@@ -501,6 +501,24 @@ describe("live progress while a draft is being written", () => {
     expect(events.some((e) => e.status === "running")).toBe(false);
   });
 
+  it("shows the rewrite of a draft's copy too: no planning, only the copy steps, live", async () => {
+    const first = watched();
+    const { campaignId } = (await first.svc.generate("w", brief)).output as { campaignId: string };
+    const ref: { svc?: CampaignsService } = {};
+    let during: ReturnType<CampaignsService["generationProgress"]> | undefined;
+    const w = watched({ content: async () => { during = ref.svc!.generationProgress("w", "rw1"); return { assets: [asset("A", "Fresh one"), asset("B", "Fresh two")] }; } });
+    ref.svc = w.svc;
+    await w.svc.regenerateContent("w", campaignId, "more playful", "rw1");
+
+    expect(during!.status).toBe("running");
+    expect(during!.events.filter((e) => e.status === "running").map((e) => e.name)).toEqual(["write_content"]);
+    const done = w.svc.generationProgress("w", "rw1");
+    expect(done.status).toBe("finished");
+    expect(names(done)).toEqual(["load_context", "get_brand_guidelines", "get_product_information", "get_audience_segments", "write_content", "check_content"]);
+    expect(names(done)).not.toContain("write_plan"); // the plan is kept, not rewritten
+    expect(done.events.every((e) => e.status === "done")).toBe(true);
+  });
+
   it("knows nothing about other keys or other workspaces, and works without a watcher", async () => {
     const w = watched();
     await w.svc.generate("w", brief, undefined, "k5");
