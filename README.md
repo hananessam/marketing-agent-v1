@@ -4,7 +4,7 @@ An AI-assisted marketing workflow: it analyzes campaign performance, recommends 
 
 **It only drafts and recommends. Nothing real is published or spent without your approval, and out of the box nothing leaves your machine except the calls to OpenAI.**
 
-## Run it in 3 minutes
+## Run it
 
 You need [Node.js](https://nodejs.org) 20 or newer, [pnpm](https://pnpm.io/installation) (`corepack enable` is the easy way to get it) and an [OpenAI API key](https://platform.openai.com/api-keys). From the project folder:
 
@@ -17,24 +17,9 @@ pnpm dev:api                             # terminal 1 -> http://localhost:4000
 pnpm dev:web                             # terminal 2 -> http://localhost:3000
 ```
 
-Open **http://localhost:3000**. On a clean copy, setup took about 10 seconds and both servers were ready about 10 seconds later (a first-ever install also downloads packages, so allow a minute or two).
+Open **http://localhost:3000**.
 
 Without the OpenAI key the app still opens and shows the demo data, but the parts that need the AI (checking your numbers, writing drafts) will tell you the key is missing.
-
-## Take the tour (2 minutes)
-
-1. **First page:** a company form, pre-filled with a sample company. Type your company name and press **Save**.
-2. **Home → Check my numbers:** compares last week with the week before and tells you what to do next.
-3. **Campaigns → New campaign → Create draft:** watch live which tools and steps the assistant is using. Edit the copy, or press **Rewrite all the copy with AI**.
-4. **Approve campaign:** the ads are created, paused, in a built-in demo ad platform. Nothing real is posted.
-5. **Tool history:** every lookup the assistant made, with its request and result.
-
-## What's in the app
-
-- **Home:** four headline numbers, up to three recommended actions, your to-do list.
-- **Campaigns:** create a draft for Google Ads and/or Meta ads, review it, approve it. Every draft is checked against your approved claims, banned phrases, link domains and each platform's length limits.
-- **Tool history:** the audit log of everything the assistant looked up.
-- **Settings:** your company details (voice, products, audiences, rules) and, optionally, your real Google Analytics and Meta accounts.
 
 ## Tools
 
