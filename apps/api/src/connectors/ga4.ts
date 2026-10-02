@@ -18,10 +18,8 @@ const PAID_MEDIUMS = new Set(["cpc", "ppc", "paid", "paidsocial", "paid_social",
 export function channelFor(source: string, medium: string): Channel | null {
   const s = source.toLowerCase();
   const m = medium.toLowerCase();
-  if (m === "email" || s === "email") return "email";
   if (!PAID_MEDIUMS.has(m)) return null;
   if (/(facebook|instagram|meta|fb|ig)/.test(s)) return "meta_ads";
-  if (s.includes("linkedin")) return "linkedin";
   if (s.includes("google")) return "google_ads";
   return null;
 }

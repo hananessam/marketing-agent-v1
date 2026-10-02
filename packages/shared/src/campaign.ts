@@ -1,7 +1,6 @@
 import { z } from "zod";
 
-export const Channel = z.enum(["email", "google_ads", "meta_ads", "linkedin", "blog"]);
-export const PaidOrEmailChannel = z.enum(["email", "google_ads", "meta_ads", "linkedin"]);
+export const Channel = z.enum(["google_ads", "meta_ads"]);
 
 export const CampaignBrief = z.object({
   objective: z.enum(["awareness", "leads", "sales", "retention"]),
@@ -40,7 +39,7 @@ export type CampaignPlan = z.infer<typeof CampaignPlan>;
 
 export const CampaignMetric = z.object({
   campaignId: z.string(),
-  channel: PaidOrEmailChannel,
+  channel: Channel,
   date: z.string().date(),
   impressions: z.number().nonnegative(),
   clicks: z.number().nonnegative(),

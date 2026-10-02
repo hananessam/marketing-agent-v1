@@ -103,10 +103,10 @@ describe("analytics service", () => {
 
   it("orders recommendations by confirmed anomaly severity, not model order", async () => {
     // Model puts the harmless campaign first; the collapsing campaign must come first in the output.
-    db.insert(schema.campaigns).values({ id: "c2", workspaceId: "w", name: "C2", channel: "email", status: "active" }).run();
+    db.insert(schema.campaigns).values({ id: "c2", workspaceId: "w", name: "C2", channel: "google_ads", status: "active" }).run();
     const rows = [];
     for (let i = 13; i >= 0; i--)
-      rows.push({ workspaceId: "w", campaignId: "c2", channel: "email", date: addDays(END, -i), impressions: 10000, clicks: 200, spend: 200, conversions: 10, revenue: 500, ingestedAt: "x" });
+      rows.push({ workspaceId: "w", campaignId: "c2", channel: "google_ads", date: addDays(END, -i), impressions: 10000, clicks: 200, spend: 200, conversions: 10, revenue: 500, ingestedAt: "x" });
     db.insert(schema.campaignMetrics).values(rows).run();
     const rec = (campaignId: string, value: number) => ({
       title: campaignId, actionType: "fix_landing_page" as const, campaignId, action: "a", rationale: "r", measurableOutcome: "m",

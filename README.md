@@ -39,7 +39,7 @@ The app has three screens and a top bar: **Home**, **Campaigns**, **Settings**.
 
 - **First time:** the home page is *only* a company form (name, products, audiences, brand voice, claims you may make, phrases to avoid, your website). Save it and Home becomes the overview. The assistant works from this: drafts are written in your voice about your products, and every draft is checked against your approved claims, banned phrases and allowed link domains. Saving writes exactly what the form shows, and new drafts use it immediately.
 - **Home:** four headline numbers (compared with the previous week), "what to do next" (up to three recommendations, each with an *Add to my to-do list* button), your to-do list, and one-line notices (a campaign waiting for approval, an account to reconnect, sample data).
-- **Campaigns:** a plain list. *New campaign* asks four things (goal, product, audience, where) and writes a draft. Review the copy, edit or remove anything, then press **Approve campaign**. Approved copy is shown with Copy buttons: the app does not post anything for you yet.
+- **Campaigns:** a plain list. *New campaign* asks four things (goal, product, audience, where) and writes a draft. The channels are **Google Ads** and **Facebook & Instagram (Meta) ads**. Review the copy, edit or remove anything, then press **Approve campaign**. Approved copy is shown with Copy buttons: the app does not post anything for you yet.
 - **Settings:** your accounts (Google Analytics, Meta Ads; sign in to connect) and your company details. Old links such as `/connections` and `/approvals` redirect here or to Campaigns.
 
 The backend is richer than the screens: approvals, agent actions in shadow mode, schedules and the audit log all still exist behind the API, and screens for them can be added back.
@@ -190,7 +190,7 @@ When you deploy, set `API_PUBLIC_URL` to your HTTPS URL and update the redirect 
 
 ## Actions and shadow mode
 
-The agent can propose things to *do*, not just things to read. Everything goes through one gate: the approvals system. Every action is recorded (`GET /actions`). *The dashboard was simplified to three screens, so today it only exposes "Add to my to-do list"; pausing, budget changes, launch packages and email scheduling work through the API and can be given screens again.*
+The agent can propose things to *do*, not just things to read. Everything goes through one gate: the approvals system. Every action is recorded (`GET /actions`). *The dashboard was simplified to three screens, so today it only exposes "Add to my to-do list"; pausing, budget changes and launch packages work through the API and can be given screens again.*
 
 | Action | Where it comes from | Approval | What happens today |
 |---|---|---|---|
@@ -198,9 +198,8 @@ The agent can propose things to *do*, not just things to read. Everything goes t
 | Pause a campaign | "Propose pausing" on a recommendation | required | **Shadow**: recorded, not applied |
 | Change a budget (max 10% at a time) | "Propose a budget change" | required | **Shadow** |
 | Publish a campaign | "Prepare launch package" on an approved campaign | required | **Shadow**: the approved copy is laid out per channel, ready to paste |
-| Schedule an email | Launch card on an approved campaign with email copy | required | **Shadow** |
 
-**Shadow mode** is the first stage of the staged rollout in the original plan (read-only, then shadow, then approval, then limited autonomy). Your Meta and Google connections are read-only and there is no email provider, so approving an external action records *exactly what would have happened* and changes nothing outside this app. The inbox says so before you decide, and Activity labels these "Recorded, not applied". `EXECUTION_MODE=live` does nothing extra yet: a real action type needs a live executor (one function in `apps/api/src/actions/actions.service.ts`) plus write permission on the platform, such as Meta `ads_management`. Until then it falls back to shadow and says why.
+**Shadow mode** is the first stage of the staged rollout in the original plan (read-only, then shadow, then approval, then limited autonomy). Your Meta and Google connections are read-only, so approving an external action records *exactly what would have happened* and changes nothing outside this app. The inbox says so before you decide, and Activity labels these "Recorded, not applied". `EXECUTION_MODE=live` does nothing extra yet: a real action type needs a live executor (one function in `apps/api/src/actions/actions.service.ts`) plus write permission on the platform, such as Meta `ads_management`. Until then it falls back to shadow and says why.
 
 How it stays safe:
 - Details are validated (typed, bounded) and a **preview of what would happen** is written when the action is proposed, so you approve something concrete.

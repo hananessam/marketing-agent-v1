@@ -8,7 +8,7 @@ export type Decision = "auto" | "needs_approval" | "never";
 const POLICY: Record<ActionType, Decision> = {
   draft: "auto",
   report: "auto",
-  schedule: "needs_approval", // sending email
+  schedule: "needs_approval", // anything that goes out to people on a timer
   publish: "needs_approval",
   change_budget: "needs_approval",
   pause: "needs_approval",

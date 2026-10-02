@@ -14,10 +14,8 @@ const rnd = () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296);
 const jitter = (base: number, pct = 0.1) => Math.round(base * (1 + (rnd() - 0.5) * 2 * pct));
 
 const campaigns = [
-  { id: "c_email_spring", name: "Spring Newsletter", channel: "email", imp: 4000, ctr: 0.06, cr: 0.028, cpc: 0.1, aov: 60 },
   { id: "c_google_brand", name: "Google Brand Search", channel: "google_ads", imp: 12000, ctr: 0.04, cr: 0.05, cpc: 1.2, aov: 90 },
   { id: "c_meta_lookalike", name: "Meta Lookalike", channel: "meta_ads", imp: 30000, ctr: 0.012, cr: 0.02, cpc: 0.8, aov: 70 },
-  { id: "c_linkedin_b2b", name: "LinkedIn B2B Leads", channel: "linkedin", imp: 8000, ctr: 0.008, cr: 0.03, cpc: 5.5, aov: 200 },
 ] as const;
 
 // children first (foreign keys)
@@ -64,9 +62,6 @@ for (const c of campaigns) {
     });
   }
 }
-// Planted data-quality gap: LinkedIn missing the last 2 days (stale data) and 1 day in the middle.
-const filtered = rows.filter(
-  (r) => !(r.campaignId === "c_linkedin_b2b" && [day(1), day(2), day(9)].includes(r.date)),
-);
+const filtered = rows;
 db.insert(schema.campaignMetrics).values(filtered).run();
 console.log(`Seeded ${filtered.length} metric rows for ${campaigns.length} campaigns.`);

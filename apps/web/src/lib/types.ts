@@ -66,7 +66,7 @@ export type CampaignPerformance = {
   totals: PeriodTotals | null; previousTotals: PeriodTotals | null;
 };
 
-export type ActionKind = "create_task" | "pause_campaign" | "change_budget" | "schedule_email" | "publish_campaign";
+export type ActionKind = "create_task" | "pause_campaign" | "change_budget" | "publish_campaign";
 export type ActionStatus = "awaiting_approval" | "executing" | "executed" | "shadowed" | "rejected" | "failed";
 export type AgentAction = {
   id: string; type: ActionKind; status: ActionStatus; payload: Record<string, unknown>;

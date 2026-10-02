@@ -15,8 +15,7 @@ const GOALS = [
   { value: "retention", label: "Keep existing customers" },
 ] as const;
 const CHANNELS = [
-  { value: "email", label: "Email" }, { value: "google_ads", label: "Google Ads" }, { value: "meta_ads", label: "Facebook & Instagram ads" },
-  { value: "linkedin", label: "LinkedIn" }, { value: "blog", label: "Blog" },
+  { value: "google_ads", label: "Google Ads" }, { value: "meta_ads", label: "Facebook & Instagram ads" },
 ] as const;
 
 export default function NewCampaignPage() {
@@ -26,7 +25,7 @@ export default function NewCampaignPage() {
   const [goal, setGoal] = useState<(typeof GOALS)[number]["value"]>("leads");
   const [product, setProduct] = useState("");
   const [audience, setAudience] = useState("");
-  const [channels, setChannels] = useState<string[]>(["email"]);
+  const [channels, setChannels] = useState<string[]>(["google_ads"]);
 
   const products = company.data?.products ?? [];
   const audiences = company.data?.audiences ?? [];

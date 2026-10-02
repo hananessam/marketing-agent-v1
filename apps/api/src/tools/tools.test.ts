@@ -9,7 +9,7 @@ let tools: ToolRunnerService;
 let runs: RunsService;
 
 const metric = (ws: string, date: string, clicks = 100) => ({
-  workspaceId: ws, campaignId: `c_${ws}`, channel: "email", date,
+  workspaceId: ws, campaignId: `c_${ws}`, channel: "meta_ads", date,
   impressions: 1000, clicks, spend: 50, conversions: 10, revenue: 500, ingestedAt: "2026-01-01T00:00:00Z",
 });
 
@@ -19,7 +19,7 @@ beforeEach(async () => {
   runs = new RunsService(db);
   for (const ws of ["a", "b"]) {
     db.insert(schema.workspaces).values({ id: ws, name: ws }).run();
-    db.insert(schema.campaigns).values({ id: `c_${ws}`, workspaceId: ws, name: ws, channel: "email", status: "active" }).run();
+    db.insert(schema.campaigns).values({ id: `c_${ws}`, workspaceId: ws, name: ws, channel: "meta_ads", status: "active" }).run();
     db.insert(schema.products).values({ id: `p_${ws}`, workspaceId: ws, name: `Product ${ws}`, description: "d" }).run();
   }
   db.insert(schema.campaignMetrics).values([metric("a", "2026-01-01"), metric("a", "2026-01-03"), metric("b", "2026-01-01", 999)]).run();

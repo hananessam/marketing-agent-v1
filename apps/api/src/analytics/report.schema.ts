@@ -3,7 +3,7 @@ import { METRICS } from "./analysis";
 
 export const ACTION_TYPES = [
   "pause_creative", "new_variant", "fix_landing_page", "exclude_audience",
-  "adjust_email_timing", "reallocate_budget", "investigate_tracking",
+  "reallocate_budget", "investigate_tracking",
 ] as const;
 
 export const Evidence = z.object({

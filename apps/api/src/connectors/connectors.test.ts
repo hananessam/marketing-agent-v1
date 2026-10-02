@@ -115,8 +115,9 @@ describe("GA4", () => {
     expect(channelFor("facebook", "paid_social")).toBe("meta_ads");
     expect(channelFor("ig", "cpc")).toBe("meta_ads");
     expect(channelFor("google", "cpc")).toBe("google_ads");
-    expect(channelFor("linkedin", "paid")).toBe("linkedin");
-    expect(channelFor("newsletter", "email")).toBe("email");
+    // channels we no longer support are skipped, not guessed at
+    expect(channelFor("linkedin", "paid")).toBeNull();
+    expect(channelFor("newsletter", "email")).toBeNull();
     expect(channelFor("google", "organic")).toBeNull();
     expect(channelFor("tiktok", "cpc")).toBeNull();
   });

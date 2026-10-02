@@ -1,12 +1,12 @@
 import { z } from "zod";
 
 export const ASSET_KINDS = [
-  "email_subject", "email_body", "ad_headline", "ad_description", "social_post", "landing_copy", "cta",
+  "ad_headline", "ad_description", "social_post", "cta",
 ] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 export const ContentAsset = z.object({
-  channel: z.enum(["email", "google_ads", "meta_ads", "linkedin", "blog"]),
+  channel: z.enum(["google_ads", "meta_ads"]),
   kind: z.enum(ASSET_KINDS),
   variant: z.string().describe('Variant label such as "A" or "B"'),
   content: z.string(),

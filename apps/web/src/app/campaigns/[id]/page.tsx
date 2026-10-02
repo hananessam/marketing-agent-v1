@@ -10,11 +10,8 @@ import type { Asset, CampaignDetail } from "@/lib/types";
 import { CampaignPerformanceView } from "@/components/campaign-performance";
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass } from "@/components/ui";
 
-const KIND: Record<string, string> = {
-  email_subject: "Subject line", email_body: "Email", ad_headline: "Headline", ad_description: "Description",
-  social_post: "Post", landing_copy: "Page copy", cta: "Button",
-};
-const CHANNEL: Record<string, string> = { email: "Email", google_ads: "Google Ads", meta_ads: "Facebook & Instagram", linkedin: "LinkedIn", blog: "Blog" };
+const KIND: Record<string, string> = { ad_headline: "Headline", ad_description: "Description", social_post: "Post", cta: "Button" };
+const CHANNEL: Record<string, string> = { google_ads: "Google Ads", meta_ads: "Facebook & Instagram" };
 
 function group(assets: Asset[]) {
   const out = new Map<string, Asset[]>();

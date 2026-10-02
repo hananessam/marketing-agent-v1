@@ -14,7 +14,6 @@ const POLICY_ACTION: Record<string, ActionType> = {
   pause_creative: "pause",
   reallocate_budget: "change_budget",
   exclude_audience: "publish",
-  adjust_email_timing: "schedule",
   new_variant: "draft",
   fix_landing_page: "draft",
   investigate_tracking: "report",

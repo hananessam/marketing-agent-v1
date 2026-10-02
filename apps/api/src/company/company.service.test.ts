@@ -104,7 +104,7 @@ describe("saving", () => {
   });
 
   it("flags sample data so the form can warn", () => {
-    db.insert(schema.campaigns).values({ id: "s", workspaceId: "w", name: "Demo", channel: "email", status: "active", source: "seed" }).run();
+    db.insert(schema.campaigns).values({ id: "s", workspaceId: "w", name: "Demo", channel: "google_ads", status: "active", source: "seed" }).run();
     expect(svc.get("w").sample).toBe(true);
     expect(svc.get("other").sample).toBe(false);
   });

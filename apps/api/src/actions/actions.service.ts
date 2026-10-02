@@ -32,6 +32,8 @@ export class ActionsService {
   // ------------------------------------------------------------------ propose
 
   async propose(workspaceId: string, input: ProposeBody) {
+    // The HTTP layer validates this too; the service does not rely on it.
+    if (!Object.hasOwn(PAYLOADS, input.type)) throw new BadRequestException(`Unknown action type "${String(input.type)}"`);
     const payloadSchema = PAYLOADS[input.type];
     const parsed = payloadSchema.safeParse(input.payload);
     if (!parsed.success) throw new BadRequestException({ message: "Invalid action details", issues: parsed.error.issues });
@@ -170,18 +172,6 @@ export class ActionsService {
         return {
           summary: `${p.direction === "increase" ? "Increase" : "Decrease"} the budget of "${c.name}" by ${p.percent}% (${PLATFORM[c.source]})`,
           details: { campaign: c.name, platform: PLATFORM[c.source], direction: p.direction, percent: p.percent, reason: p.reason, note: "The current budget is not stored here, so the change is a percentage." },
-        };
-      }
-      case "schedule_email": {
-        const p = PAYLOADS.schedule_email.parse(payload);
-        const c = this.campaign(workspaceId, p.campaignId);
-        if (c.status !== "approved") throw new ConflictException("Only approved campaigns can be scheduled");
-        const emails = this.approvedAssets(workspaceId, c.id).filter((a) => a.variant.startsWith("email:"));
-        if (!emails.length) throw new UnprocessableEntityException("This campaign has no approved email copy");
-        if (Date.parse(p.sendAt) <= Date.now()) throw new UnprocessableEntityException("Choose a time in the future");
-        return {
-          summary: `Send the email for "${c.name}" on ${p.sendAt.slice(0, 16).replace("T", " ")} UTC`,
-          details: { campaign: c.name, sendAt: p.sendAt, subjectLines: emails.filter((a) => a.kind === "email_subject").map((a) => a.content), pieces: emails.length },
         };
       }
       case "publish_campaign": {

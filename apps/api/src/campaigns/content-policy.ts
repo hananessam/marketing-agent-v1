@@ -4,19 +4,15 @@ export type BrandRules = { approvedClaims: string[]; prohibited: string[]; allow
 export type Violation = { where: string; rule: string; detail: string };
 
 export const ALLOWED_KINDS: Record<string, AssetKind[]> = {
-  email: ["email_subject", "email_body", "cta"],
   google_ads: ["ad_headline", "ad_description", "cta"],
   meta_ads: ["ad_headline", "ad_description", "social_post", "cta"],
-  linkedin: ["ad_headline", "ad_description", "social_post", "cta"],
-  blog: ["landing_copy", "cta"],
 };
 
-const DEFAULT_MAX: Partial<Record<AssetKind, number>> = { email_subject: 70, cta: 40, social_post: 600 };
+const DEFAULT_MAX: Partial<Record<AssetKind, number>> = { cta: 40, social_post: 600 };
 /** Per-channel limits; Google Ads is the strictest. */
 const CHANNEL_MAX: Record<string, Partial<Record<AssetKind, number>>> = {
   google_ads: { ad_headline: 30, ad_description: 90 },
   meta_ads: { ad_headline: 40, ad_description: 125 },
-  linkedin: { ad_headline: 70, ad_description: 150 },
 };
 export const maxLength = (channel: string, kind: AssetKind) => CHANNEL_MAX[channel]?.[kind] ?? DEFAULT_MAX[kind];
 

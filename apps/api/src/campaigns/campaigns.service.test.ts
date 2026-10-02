@@ -11,15 +11,15 @@ import type { ContentAsset, ContentDraft } from "./content.schema";
 import type { CampaignWriter } from "./writer";
 
 const brief: CampaignBrief = {
-  objective: "leads", product: "Acme Planner", audience: "Founders", channels: ["email"], durationDays: 14, constraints: [],
+  objective: "leads", product: "Acme Planner", audience: "Founders", channels: ["google_ads"], durationDays: 14, constraints: [],
 };
 const plan = (over: Partial<CampaignPlan> = {}): CampaignPlan => ({
   objective: "leads", audienceSegments: ["Founders"], positioning: "Simple planning", keyMessage: "Plan faster",
-  channels: [{ name: "email", role: "nurture", contentTypes: ["email_subject"], successMetrics: ["conversionRate"] }],
+  channels: [{ name: "google_ads", role: "search", contentTypes: ["ad_headline"], successMetrics: ["conversionRate"] }],
   experiments: [{ hypothesis: "Short subject wins", variable: "subject", variants: ["A", "B"] }], risks: [], ...over,
 });
-const asset = (variant: string, content: string, kind: ContentAsset["kind"] = "email_subject"): ContentAsset =>
-  ({ channel: "email", kind, variant, content, claimsUsed: [] });
+const asset = (variant: string, content: string, kind: ContentAsset["kind"] = "ad_headline"): ContentAsset =>
+  ({ channel: "google_ads", kind, variant, content, claimsUsed: [] });
 const goodDraft = (): ContentDraft => ({ assets: [asset("A", "Plan your week"), asset("B", "Your week, planned")] });
 
 let db: Db;
@@ -89,7 +89,7 @@ describe("campaign generation", () => {
   });
 
   it("rejects plans for channels that were not requested", async () => {
-    const { svc, calls } = make({ plan: async () => plan({ channels: [{ name: "linkedin", role: "r", contentTypes: [], successMetrics: [] }] }) });
+    const { svc, calls } = make({ plan: async () => plan({ channels: [{ name: "meta_ads", role: "r", contentTypes: [], successMetrics: [] }] }) });
     const res = await svc.generate("w", brief);
     expect(res.status).toBe("failed");
     expect(calls.content).toBe(0);
@@ -106,7 +106,7 @@ describe("campaign generation", () => {
 });
 
 describe("fit problems (too long) are fixable, not fatal", () => {
-  const LONG = "A subject line that is far too long for an email subject because it just keeps going and going";
+  const LONG = "A headline that is far too long for an ad because it just keeps going and going";
   const longDraft = (): ContentDraft => ({ assets: [asset("A", LONG), asset("B", `${LONG} again`)] });
 
   it("retries up to three times with the exact text and overage, then saves the draft with the problems flagged", async () => {

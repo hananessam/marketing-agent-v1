@@ -8,7 +8,7 @@ const brand: BrandRules = {
   allowedDomains: ["acme.example"],
 };
 const asset = (over: Partial<ContentAsset> = {}): ContentAsset => ({
-  channel: "email", kind: "email_subject", variant: "A", content: "Plan your week", claimsUsed: [], ...over,
+  channel: "google_ads", kind: "ad_headline", variant: "A", content: "Plan your week", claimsUsed: [], ...over,
 });
 const rules = (v: { rule: string }[]) => v.map((x) => x.rule);
 
@@ -27,9 +27,9 @@ describe("content policy", () => {
   });
 
   it("validates links: https, allowed domain, UTM params", () => {
-    const good = "https://acme.example/go?utm_source=e&utm_medium=email&utm_campaign=spring";
+    const good = "https://acme.example/go?utm_source=e&utm_medium=cpc&utm_campaign=spring";
     expect(checkText("x", `Go ${good}`, brand)).toEqual([]);
-    expect(checkText("x", `Go https://app.acme.example/go?utm_source=e&utm_medium=email&utm_campaign=s.`, brand)).toEqual([]);
+    expect(checkText("x", `Go https://app.acme.example/go?utm_source=e&utm_medium=cpc&utm_campaign=s.`, brand)).toEqual([]);
     expect(rules(checkText("x", "Go http://acme.example/?utm_source=e&utm_medium=m&utm_campaign=c", brand))).toContain("insecure_url");
     expect(rules(checkText("x", "Go https://evil.example/?utm_source=e&utm_medium=m&utm_campaign=c", brand))).toContain("unapproved_domain");
     expect(rules(checkText("x", "Go https://acme.example/pricing", brand))).toContain("missing_tracking");
@@ -38,8 +38,9 @@ describe("content policy", () => {
 
   it("enforces length limits, valid kinds and cited claims", () => {
     expect(rules(checkAsset(asset({ channel: "google_ads", kind: "ad_headline", content: "x".repeat(31) }), brand))).toContain("too_long");
-    expect(checkAsset(asset({ channel: "linkedin", kind: "ad_headline", content: "x".repeat(70) }), brand)).toEqual([]);
-    expect(rules(checkAsset(asset({ channel: "google_ads", kind: "email_body" }), brand))).toContain("invalid_kind");
+    expect(checkAsset(asset({ channel: "meta_ads", kind: "ad_headline", content: "x".repeat(40) }), brand)).toEqual([]); // Meta allows longer headlines than Google
+    expect(rules(checkAsset(asset({ channel: "meta_ads", kind: "ad_headline", content: "x".repeat(41) }), brand))).toContain("too_long");
+    expect(rules(checkAsset(asset({ channel: "google_ads", kind: "social_post" }), brand))).toContain("invalid_kind"); // posts only exist on Meta
     expect(rules(checkAsset(asset({ claimsUsed: ["Made-up claim"] }), brand))).toContain("unapproved_claim_cited");
     expect(checkAsset(asset({ claimsUsed: ["free 30-day trial"] }), brand)).toEqual([]);
   });
@@ -54,10 +55,10 @@ describe("content policy", () => {
   });
 
   it("requires every requested channel and at least two variants", () => {
-    const one = checkDraft([asset()], ["email", "linkedin"], brand);
+    const one = checkDraft([asset()], ["google_ads", "meta_ads"], brand);
     expect(rules(one)).toEqual(expect.arrayContaining(["needs_variants", "missing_channel"]));
-    const ok = checkDraft([asset(), asset({ variant: "B", content: "Your week, planned" })], ["email"], brand);
+    const ok = checkDraft([asset(), asset({ variant: "B", content: "Your week, planned" })], ["google_ads"], brand);
     expect(ok).toEqual([]);
-    expect(rules(checkDraft([asset(), asset({ variant: "B" })], ["linkedin"], brand))).toContain("channel_not_in_brief");
+    expect(rules(checkDraft([asset(), asset({ variant: "B" })], ["meta_ads"], brand))).toContain("channel_not_in_brief");
   });
 });

@@ -8,7 +8,6 @@ import { ActionsService } from "./actions.service";
 let db: Db;
 let actions: ActionsService;
 let inbox: CampaignsService;
-const future = () => new Date(Date.now() + 7 * 86_400_000).toISOString();
 const propose = (type: string, payload: unknown, extra: Record<string, unknown> = {}, ws = "w") =>
   actions.propose(ws, { type, payload, source: "manual", requestedBy: "tester", ...extra } as never);
 const approvals = (ws = "w") => db.select().from(schema.approvals).where(eq(schema.approvals.workspaceId, ws)).all();
@@ -23,15 +22,15 @@ beforeEach(async () => {
   db.insert(schema.campaigns).values([
     { id: "meta", workspaceId: "w", name: "Meta Spring", channel: "meta_ads", status: "active", source: "meta_ads" },
     { id: "ga", workspaceId: "w", name: "GA Visits", channel: "google_ads", status: "active", source: "ga4" },
-    { id: "ready", workspaceId: "w", name: "Launch Me", channel: "email,linkedin", status: "approved", source: "manual" },
-    { id: "draft", workspaceId: "w", name: "Not Yet", channel: "email", status: "draft", source: "manual" },
+    { id: "ready", workspaceId: "w", name: "Launch Me", channel: "google_ads,meta_ads", status: "approved", source: "manual" },
+    { id: "draft", workspaceId: "w", name: "Not Yet", channel: "google_ads", status: "draft", source: "manual" },
     { id: "theirs", workspaceId: "other", name: "Theirs", channel: "meta_ads", status: "active", source: "meta_ads" },
   ]).run();
   const asset = (id: string, variant: string, kind: string, content: string, status = "approved") =>
     ({ id, workspaceId: "w", campaignId: "ready", kind, variant, content, status: status as "approved" });
   db.insert(schema.campaignAssets).values([
-    asset("a1", "email:A", "email_subject", "Plan your week"), asset("a2", "email:B", "email_subject", "Your week, planned"),
-    asset("a3", "linkedin:A", "ad_headline", "Plan faster"), asset("a4", "email:A", "email_body", "Draft body", "rejected"),
+    asset("a1", "google_ads:A", "ad_headline", "Plan your week"), asset("a2", "google_ads:B", "ad_headline", "Your week, planned"),
+    asset("a3", "meta_ads:A", "ad_headline", "Plan faster"), asset("a4", "google_ads:A", "ad_description", "Draft body", "rejected"),
   ]).run();
 });
 afterEach(() => { delete process.env.EXECUTION_MODE; });
@@ -158,25 +157,22 @@ describe("validation", () => {
     await expect(propose("change_budget", { campaignId: "ga", direction: "decrease", percent: 5 })).rejects.toThrow(/no budget/);
   });
 
-  it("only publishes or schedules approved campaigns that have approved copy", async () => {
+  it("only publishes approved campaigns that have approved copy", async () => {
     await expect(propose("publish_campaign", { campaignId: "draft" })).rejects.toThrow(/Only approved campaigns/);
-    await expect(propose("schedule_email", { campaignId: "draft", sendAt: future() })).rejects.toThrow(/Only approved campaigns/);
-    db.insert(schema.campaigns).values({ id: "empty", workspaceId: "w", name: "Empty", channel: "email", status: "approved", source: "manual" }).run();
+    db.insert(schema.campaigns).values({ id: "empty", workspaceId: "w", name: "Empty", channel: "google_ads", status: "approved", source: "manual" }).run();
     await expect(propose("publish_campaign", { campaignId: "empty" })).rejects.toThrow(/no approved copy/);
-    await expect(propose("schedule_email", { campaignId: "empty", sendAt: future() })).rejects.toThrow(/no approved email copy/);
   });
 
-  it("the launch package lists only approved copy, grouped by channel; scheduling needs a future time", async () => {
+  it("the launch package lists only approved copy, grouped by channel", async () => {
     const r = await propose("publish_campaign", { campaignId: "ready" });
-    expect(r.action.preview.summary).toBe('Publish "Launch Me": 3 pieces of approved copy on email, linkedin');
+    expect(r.action.preview.summary).toBe('Publish "Launch Me": 3 pieces of approved copy on google_ads, meta_ads');
     const details = r.action.preview.details as { channels: { channel: string; items: { content: string }[] }[] };
-    expect(details.channels.map((c) => c.channel)).toEqual(["email", "linkedin"]);
+    expect(details.channels.map((c) => c.channel)).toEqual(["google_ads", "meta_ads"]);
     expect(JSON.stringify(details)).not.toContain("Draft body"); // the rejected piece is excluded
+  });
 
-    await expect(propose("schedule_email", { campaignId: "ready", sendAt: "2020-01-01T09:00:00.000Z" })).rejects.toThrow(/future/);
-    await expect(propose("schedule_email", { campaignId: "ready", sendAt: "tomorrow" })).rejects.toMatchObject({ status: 400 });
-    const s = await propose("schedule_email", { campaignId: "ready", sendAt: future() });
-    expect(s.action.preview.details).toMatchObject({ subjectLines: ["Plan your week", "Your week, planned"], pieces: 2 });
+  it("no longer knows about email scheduling", async () => {
+    await expect(propose("schedule_email", { campaignId: "ready", sendAt: "2030-01-01T09:00:00.000Z" })).rejects.toMatchObject({ status: 400 });
   });
 });
 

@@ -41,7 +41,7 @@ export const campaigns = sqliteTable("campaigns", {
 export const campaignAssets = sqliteTable("campaign_assets", {
   id: id(), workspaceId: workspaceId(),
   campaignId: text("campaign_id").notNull().references(() => campaigns.id),
-  kind: text("kind").notNull(), // email_subject, ad_headline, ...
+  kind: text("kind").notNull(), // ad_headline, ad_description, ...
   variant: text("variant").notNull(),
   content: text("content").notNull(),
   status: text("status", { enum: ["draft", "approved", "rejected"] }).notNull(),
@@ -141,7 +141,7 @@ export const oauthStates = sqliteTable("oauth_states", {
 /** Something the agent proposes to do (or the user asks for). External ones are recorded in shadow mode, not performed. */
 export const actions = sqliteTable("actions", {
   id: id(), workspaceId: workspaceId(),
-  type: text("type", { enum: ["create_task", "pause_campaign", "change_budget", "schedule_email", "publish_campaign"] }).notNull(),
+  type: text("type", { enum: ["create_task", "pause_campaign", "change_budget", "publish_campaign"] }).notNull(),
   status: text("status", { enum: ["awaiting_approval", "executing", "executed", "shadowed", "rejected", "failed"] }).notNull(),
   payload: text("payload", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
   /** What would happen, written at proposal time so the approver sees it before deciding. */

@@ -119,11 +119,11 @@ describe("sync", () => {
 describe("seed purge and connections", () => {
   it("removes only seed campaigns (and their data) in the given workspace", async () => {
     db.insert(schema.campaigns).values([
-      { id: "s1", workspaceId: "w", name: "Seed", channel: "email", status: "active", source: "seed" },
-      { id: "s2", workspaceId: "other", name: "Seed", channel: "email", status: "active", source: "seed" },
-      { id: "m1", workspaceId: "w", name: "Mine", channel: "email", status: "draft", source: "manual" },
+      { id: "s1", workspaceId: "w", name: "Seed", channel: "google_ads", status: "active", source: "seed" },
+      { id: "s2", workspaceId: "other", name: "Seed", channel: "google_ads", status: "active", source: "seed" },
+      { id: "m1", workspaceId: "w", name: "Mine", channel: "google_ads", status: "draft", source: "manual" },
     ]).run();
-    const m = (campaignId: string, workspaceId: string) => ({ workspaceId, campaignId, channel: "email", date: "2026-03-10", impressions: 1, clicks: 1, spend: 1, conversions: 1, revenue: 1, ingestedAt: "x" });
+    const m = (campaignId: string, workspaceId: string) => ({ workspaceId, campaignId, channel: "google_ads", date: "2026-03-10", impressions: 1, clicks: 1, spend: 1, conversions: 1, revenue: 1, ingestedAt: "x" });
     db.insert(schema.campaignMetrics).values([m("s1", "w"), m("s2", "other"), m("m1", "w")]).run();
     await make().sync("w", "conn_w", { endDate: "2026-03-10" });
 

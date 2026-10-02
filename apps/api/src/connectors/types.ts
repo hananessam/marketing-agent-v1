@@ -1,4 +1,4 @@
-export type Channel = "email" | "google_ads" | "meta_ads" | "linkedin";
+export type Channel = "google_ads" | "meta_ads";
 export type Provider = "meta_ads" | "ga4";
 export type DateRange = { startDate: string; endDate: string };
 

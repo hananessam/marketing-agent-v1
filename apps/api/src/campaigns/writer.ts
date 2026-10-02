@@ -42,8 +42,8 @@ export class OpenAIWriter implements CampaignWriter {
     const res = await model.invoke([
       { role: "system", content: `You are a marketing copywriter.\n${RULES}
 - For every channel in the brief, write at least 2 distinct variants (labelled "A", "B", ...) of each content kind.
-- Valid kinds per channel: email: email_subject, email_body, cta; google_ads: ad_headline, ad_description, cta; meta_ads/linkedin: ad_headline, ad_description, social_post, cta; blog: landing_copy, cta.
-- Hard length limits in characters: google_ads ad_headline 30 / ad_description 90; meta_ads ad_headline 40 / ad_description 125; linkedin ad_headline 70 / ad_description 150; email_subject 70; cta 40; social_post 600. Count characters carefully and aim for about 80% of the limit (for example 24 characters or fewer for a Google Ads headline) so nothing goes over.
+- Valid kinds per channel: google_ads: ad_headline, ad_description, cta; meta_ads: ad_headline, ad_description, social_post, cta.
+- Hard length limits in characters: google_ads ad_headline 30 / ad_description 90; meta_ads ad_headline 40 / ad_description 125; cta 40; social_post 600. Count characters carefully and aim for about 80% of the limit (for example 24 characters or fewer for a Google Ads headline) so nothing goes over.
 - List every approved claim you rely on in claimsUsed (verbatim); use [] if none.` },
       { role: "user", content: `Write the content variants.\n\nBRIEF:\n${JSON.stringify(brief)}\n\nPLAN:\n${JSON.stringify(plan)}\n\nCONTEXT:\n${JSON.stringify(context)}${feedbackText(feedback)}` },
     ]);

@@ -33,7 +33,6 @@ export const ACTION_LABEL: Record<string, string> = {
   new_variant: "Test a new version",
   fix_landing_page: "Fix the landing page",
   exclude_audience: "Exclude an audience",
-  adjust_email_timing: "Change email timing",
   reallocate_budget: "Move budget",
   investigate_tracking: "Check data tracking",
 };
@@ -85,10 +84,9 @@ export function humanize(text: string, names: Map<string, string>): string {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  email_subject: "subject line", email_body: "body", ad_headline: "headline", ad_description: "description",
-  social_post: "post", landing_copy: "landing page copy", cta: "button text",
+  ad_headline: "headline", ad_description: "description", social_post: "post", cta: "button text",
 };
-const CHANNEL_NAME: Record<string, string> = { email: "Email", google_ads: "Google Ads", meta_ads: "Meta Ads", linkedin: "LinkedIn", blog: "Blog" };
+const CHANNEL_NAME: Record<string, string> = { google_ads: "Google Ads", meta_ads: "Meta Ads" };
 
 /** "[google_ads/ad_headline/A] too_long: 34 chars, max 30; ..." -> "Google ads ad headline (version A) is too long: 34 characters, the limit is 30." */
 export function friendlyViolation(raw: string): string {
@@ -126,7 +124,7 @@ export function friendlyIssue(issue: string): string {
 
 export const ACTION_TYPE_LABEL: Record<string, string> = {
   create_task: "Add a task", pause_campaign: "Pause a campaign", change_budget: "Change a budget",
-  schedule_email: "Schedule an email", publish_campaign: "Publish a campaign",
+  publish_campaign: "Publish a campaign",
 };
 
 export const ACTION_STATUS: Record<string, { label: string; tone: "good" | "warn" | "bad" | "info" | "neutral" }> = {
