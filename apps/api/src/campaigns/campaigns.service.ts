@@ -4,6 +4,7 @@ import { and, asc, desc, eq, gte, lte, max, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { schema, type Db } from "../db";
+import { ActionsService } from "../actions/actions.service";
 import { DB } from "../db/database.module";
 import { RunsService } from "../runs/runs.service";
 import { ToolRunnerService } from "../tools/tool-runner.service";
@@ -28,6 +29,7 @@ export class CampaignsService {
     private readonly tools: ToolRunnerService,
     private readonly runs: RunsService,
     @Inject(CAMPAIGN_WRITER) private readonly writer: CampaignWriter,
+    private readonly actions: ActionsService,
   ) {}
 
   // ---------- generation ----------
@@ -223,6 +225,18 @@ export class CampaignsService {
       if (approval.runId) tx.update(schema.agentRuns).set({ status: "succeeded" }).where(eq(schema.agentRuns.id, approval.runId)).run();
     });
     return { approvalId, campaignId, status: decision, decidedBy };
+  }
+
+  /**
+   * The approvals inbox holds two kinds of request: campaign sign-offs and agent actions (pause, budget, publish...).
+   * Actions are decided and executed by the actions service; campaigns by `decide` above.
+   */
+  async decideApproval(workspaceId: string, approvalId: string, decision: "approved" | "rejected", decidedBy: string, note?: string) {
+    const approval = this.db.select().from(schema.approvals)
+      .where(and(eq(schema.approvals.workspaceId, workspaceId), eq(schema.approvals.id, approvalId))).get();
+    if (!approval) throw new NotFoundException("Approval not found");
+    if ((approval.payload as { actionId?: string } | null)?.actionId) return this.actions.decideForApproval(workspaceId, approval, decision, decidedBy, note);
+    return this.decide(workspaceId, approvalId, decision, decidedBy, note);
   }
 
   /**

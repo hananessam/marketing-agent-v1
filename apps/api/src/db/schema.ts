@@ -133,3 +133,33 @@ export const oauthStates = sqliteTable("oauth_states", {
   expiresAt: text("expires_at").notNull(),
   createdAt: createdAt(),
 });
+
+/** Something the agent proposes to do (or the user asks for). External ones are recorded in shadow mode, not performed. */
+export const actions = sqliteTable("actions", {
+  id: id(), workspaceId: workspaceId(),
+  type: text("type", { enum: ["create_task", "pause_campaign", "change_budget", "schedule_email", "publish_campaign"] }).notNull(),
+  status: text("status", { enum: ["awaiting_approval", "executing", "executed", "shadowed", "rejected", "failed"] }).notNull(),
+  payload: text("payload", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+  /** What would happen, written at proposal time so the approver sees it before deciding. */
+  preview: text("preview", { mode: "json" }).$type<{ summary: string; details: Record<string, unknown> }>().notNull(),
+  result: text("result", { mode: "json" }).$type<Record<string, unknown>>(),
+  source: text("source", { enum: ["recommendation", "campaign", "manual"] }).notNull(),
+  sourceRef: text("source_ref"),
+  approvalId: text("approval_id"),
+  requestedBy: text("requested_by").notNull(),
+  /** Hash of type + payload + source. Unique while the action is live, so the same proposal cannot run twice. */
+  idempotencyKey: text("idempotency_key"),
+  createdAt: createdAt(),
+  executedAt: text("executed_at"),
+}, (t) => [uniqueIndex("actions_idem").on(t.workspaceId, t.idempotencyKey), index("actions_ws").on(t.workspaceId, t.status)]);
+
+export const tasks = sqliteTable("tasks", {
+  id: id(), workspaceId: workspaceId(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  campaignId: text("campaign_id"),
+  status: text("status", { enum: ["open", "done"] }).notNull().default("open"),
+  actionId: text("action_id"),
+  createdAt: createdAt(),
+  doneAt: text("done_at"),
+}, (t) => [index("tasks_ws").on(t.workspaceId, t.status)]);

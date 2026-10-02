@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db";
 import { RunsService } from "../runs/runs.service";
 import { createTestDb, schema } from "../test/helpers";
+import { ActionsService } from "../actions/actions.service";
 import { ToolRunnerService } from "../tools/tool-runner.service";
 import { CampaignsService } from "./campaigns.service";
 import type { ContentAsset, ContentDraft } from "./content.schema";
@@ -32,7 +33,7 @@ function make(writer: Partial<CampaignWriter> & { content?: CampaignWriter["cont
     content: async (i) => { calls.content++; calls.feedback.push(i.feedback); return goodDraft(); },
     ...writer,
   };
-  return { svc: new CampaignsService(db, tools, runs, full), calls };
+  return { svc: new CampaignsService(db, tools, runs, full, new ActionsService(db)), calls };
 }
 
 beforeEach(async () => {

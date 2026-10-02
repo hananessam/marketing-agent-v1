@@ -53,6 +53,6 @@ export class CampaignsController {
 
   @Post("approvals/:id/decision")
   decide(@WorkspaceId() ws: string, @Param("id") id: string, @Body(new ZodValidationPipe(DecisionBody)) body: z.infer<typeof DecisionBody>) {
-    return this.campaigns.decide(ws, id, body.decision, body.decidedBy, body.note);
+    return this.campaigns.decideApproval(ws, id, body.decision, body.decidedBy, body.note);
   }
 }
