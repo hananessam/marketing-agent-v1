@@ -7,14 +7,6 @@ import { timeAgo } from "@/lib/format";
 import type { Campaign, ToolCall } from "@/lib/types";
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, statusTone } from "@/components/ui";
 
-const TOOL_LABEL: Record<string, string> = {
-  get_campaign_metrics: "Looked up campaign numbers",
-  list_campaigns: "Listed your campaigns",
-  get_brand_guidelines: "Read your brand rules",
-  get_product_information: "Read your products",
-  get_audience_segments: "Read your audiences",
-};
-
 const asObject = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 
 /** A short human line for what the call was about, e.g. the campaign and dates for a metrics lookup. */
@@ -57,7 +49,7 @@ export default function HistoryPage() {
         actions={tools.length > 1 ? (
           <select aria-label="Filter by tool" value={tool} onChange={(e) => setTool(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950">
             <option value="all">All tools</option>
-            {tools.map((t) => <option key={t} value={t}>{TOOL_LABEL[t] ?? t}</option>)}
+            {tools.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         ) : undefined}
       />
@@ -76,13 +68,13 @@ export default function HistoryPage() {
               <details className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                 <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
                   <Badge tone={statusTone(c.status)}>{c.status}</Badge>
-                  <span className="font-medium">{TOOL_LABEL[c.tool] ?? c.tool}</span>
+                  <span className="font-mono">{c.tool}</span>
                   {d && <span className="text-zinc-500">{d}</span>}
                   <time className="ml-auto text-xs text-zinc-500" dateTime={c.createdAt} title={new Date(c.createdAt).toLocaleString()}>{timeAgo(c.createdAt, now)}</time>
                   {error && <span className="basis-full text-xs text-red-600 dark:text-red-400">{error}</span>}
                 </summary>
                 <div className="space-y-3 border-t border-zinc-200 p-4 dark:border-zinc-800">
-                  <p className="text-xs text-zinc-500"><span className="font-mono">{c.tool}</span> · {new Date(c.createdAt).toLocaleString()}</p>
+                  <p className="text-xs text-zinc-500">{new Date(c.createdAt).toLocaleString()}</p>
                   <div className="grid gap-3 md:grid-cols-2">
                     <Json title="What it asked for" value={c.args} />
                     <Json title="What it got back" value={c.result} />
