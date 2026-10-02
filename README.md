@@ -3,7 +3,7 @@
 An AI-assisted marketing workflow: it analyzes campaign performance, recommends next actions, and drafts campaigns. **It only drafts and recommends. Nothing is published, sent, or spent without human approval.**
 
 - **Analytics:** compares the last period with the one before, checks data quality, detects anomalies, and proposes up to three actions backed by cited metrics.
-- **Campaign drafting:** plan + content variants, checked against brand policy (prohibited phrases, unsupported claims, link domains/UTMs, length limits).
+- **Campaign drafting:** plan + one version of each piece of copy, checked against brand policy (prohibited phrases, unsupported claims, link domains/UTMs, length limits).
 - **Approvals:** every risky action waits in an inbox; every tool call is audited.
 - **Background jobs:** scheduled reports (BullMQ + Redis), optional Slack summaries.
 - **Connectors:** sign in with Google (GA4) and Meta (Ads) from the dashboard; read-only, tokens stored encrypted.
@@ -228,7 +228,7 @@ In demo mode the sandbox behaves like a real platform: the same checks apply (da
 
 With `EXECUTION_MODE=live`, approving a campaign that has Facebook & Instagram copy creates the ads in your Meta ad account. It only ever creates things **paused**.
 
-**What gets created:** one campaign (objective *Traffic*), one ad set (the daily budget and country you enter) and one ad per variant (A, B, …), each using that variant's own headline, description, post text and button. Links carry `utm_source/medium/campaign/content` tags so Google Analytics can attribute the visits. Nothing spends until *you* switch the ads on in Ads Manager. After creating them the app asks Meta to confirm each one really is paused (and pauses it if not).
+**What gets created:** one campaign (objective *Traffic*), one ad set (the daily budget and country you enter) and one ad for the campaign's copy (older campaigns may have versions A and B, one ad each), each using its own headline, description, post text and button. Links carry `utm_source/medium/campaign/content` tags so Google Analytics can attribute the visits. Nothing spends until *you* switch the ads on in Ads Manager. After creating them the app asks Meta to confirm each one really is paused (and pauses it if not).
 
 **Turning it on (one time):**
 1. In your Meta app, make sure the permissions `ads_management`, `pages_show_list` and `pages_read_engagement` are available. In **Development** mode they work for people who have a role on the app (Administrator, Developer or Tester), for their own ad accounts and Pages.

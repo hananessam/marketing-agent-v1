@@ -48,6 +48,8 @@ function Draft({ c, id, setPostError }: { c: CampaignDetail; id: string; setPost
   const qc = useQueryClient();
   const live = c.assets.filter((a) => a.status !== "rejected"); // removed copy is simply hidden
   const flawed = live.filter((a) => a.issues.length > 0).length;
+  // New campaigns have one version of everything; older ones may still have A and B, which stay labelled.
+  const multiVersion = new Set(live.map((a) => a.variant.split(":")[1])).size > 1;
 
   // Approving also creates the ads on Meta (paused), when that is switched on and the campaign has Meta copy.
   const hasMeta = live.some((a) => a.variant.startsWith("meta_ads:"));
@@ -87,7 +89,7 @@ function Draft({ c, id, setPostError }: { c: CampaignDetail; id: string; setPost
       {[...group(live)].map(([channel, assets]) => (
         <Card key={channel} title={CHANNEL[channel] ?? label(channel)}>
           <ul className="space-y-4">
-            {assets.map((a) => <AssetRow key={a.id} campaignId={id} asset={a} />)}
+            {assets.map((a) => <AssetRow key={a.id} campaignId={id} asset={a} showVersion={multiVersion} />)}
           </ul>
         </Card>
       ))}
@@ -109,7 +111,7 @@ function Draft({ c, id, setPostError }: { c: CampaignDetail; id: string; setPost
   );
 }
 
-function AssetRow({ campaignId, asset }: { campaignId: string; asset: Asset }) {
+function AssetRow({ campaignId, asset, showVersion }: { campaignId: string; asset: Asset; showVersion: boolean }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(asset.content);
@@ -124,7 +126,7 @@ function AssetRow({ campaignId, asset }: { campaignId: string; asset: Asset }) {
 
   return (
     <li>
-      <p className="mb-1 text-xs font-medium text-zinc-500">{KIND[asset.kind] ?? label(asset.kind)} · version {asset.variant.split(":")[1]}</p>
+      <p className="mb-1 text-xs font-medium text-zinc-500">{KIND[asset.kind] ?? label(asset.kind)}{showVersion ? ` · version ${asset.variant.split(":")[1]}` : ""}</p>
       {editing ? (
         <>
           <textarea aria-label="Edit copy" rows={4} className={inputClass} value={text} onChange={(e) => setText(e.target.value)} />
@@ -171,6 +173,7 @@ function Approved({ c, id, postError, setPostError }: { c: CampaignDetail; id: s
   const hasMeta = items.some((a) => a.variant.startsWith("meta_ads:"));
   const hasGoogle = items.some((a) => a.variant.startsWith("google_ads:"));
   const posted = c.publish?.status === "executed";
+  const multiVersion = new Set(items.map((a) => a.variant.split(":")[1])).size > 1;
 
   // Offer (another) try when Meta copy has not been posted yet and posting is possible.
   const pub = usePublishing((hasMeta || hasGoogle) && !posted, hasMeta);
@@ -204,7 +207,7 @@ function Approved({ c, id, postError, setPostError }: { c: CampaignDetail; id: s
           <ul className="space-y-4">
             {assets.map((a) => (
               <li key={a.id}>
-                <div className="flex items-center justify-between"><p className="text-xs font-medium text-zinc-500">{KIND[a.kind] ?? label(a.kind)} · version {a.variant.split(":")[1]}</p><CopyButton text={a.content} /></div>
+                <div className="flex items-center justify-between"><p className="text-xs font-medium text-zinc-500">{KIND[a.kind] ?? label(a.kind)}{multiVersion ? ` · version ${a.variant.split(":")[1]}` : ""}</p><CopyButton text={a.content} /></div>
                 <p className="mt-1 whitespace-pre-wrap text-sm">{a.content}</p>
               </li>
             ))}

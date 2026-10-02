@@ -54,11 +54,13 @@ describe("content policy", () => {
     expect(isSoftViolation({ where: "x", rule: "missing_tracking", detail: "" })).toBe(false);
   });
 
-  it("requires every requested channel and at least two variants", () => {
+  it("requires every requested channel, and a single version of each piece of copy is fine", () => {
     const one = checkDraft([asset()], ["google_ads", "meta_ads"], brand);
-    expect(rules(one)).toEqual(expect.arrayContaining(["needs_variants", "missing_channel"]));
-    const ok = checkDraft([asset(), asset({ variant: "B", content: "Your week, planned" })], ["google_ads"], brand);
-    expect(ok).toEqual([]);
+    expect(rules(one)).toEqual(["missing_channel"]);
+    expect(rules(one)).not.toContain("needs_variants");
+    expect(checkDraft([asset()], ["google_ads"], brand)).toEqual([]);
+    // older campaigns may still have A and B: that is allowed too
+    expect(checkDraft([asset(), asset({ variant: "B", content: "Your week, planned" })], ["google_ads"], brand)).toEqual([]);
     expect(rules(checkDraft([asset(), asset({ variant: "B" })], ["meta_ads"], brand))).toContain("channel_not_in_brief");
   });
 });

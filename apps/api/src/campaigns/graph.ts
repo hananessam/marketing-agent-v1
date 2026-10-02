@@ -49,7 +49,6 @@ function checkPlan(plan: CampaignPlan, brief: CampaignBrief, brand: BrandRules):
   ]);
   for (const ch of plan.channels)
     if (!brief.channels.includes(ch.name as never)) errors.push(`plan.channels: "${ch.name}" was not requested (requested: ${brief.channels.join(", ")})`);
-  if (!plan.experiments.length) errors.push("plan.experiments: include at least one experiment");
   return errors;
 }
 

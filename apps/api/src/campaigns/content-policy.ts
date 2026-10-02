@@ -68,20 +68,13 @@ export function checkAsset(a: ContentAsset, brand: BrandRules, label = `${a.chan
   return out;
 }
 
-/** Whole-draft rules: channel coverage and testable variants, plus every asset. */
+/** Whole-draft rules: channel coverage, plus every asset. */
 export function checkDraft(assets: ContentAsset[], briefChannels: string[], brand: BrandRules): Violation[] {
   const out = assets.flatMap((a) => checkAsset(a, brand));
   for (const a of assets)
     if (!briefChannels.includes(a.channel)) out.push({ where: `${a.channel}/${a.kind}/${a.variant}`, rule: "channel_not_in_brief", detail: `${a.channel} was not requested` });
   for (const ch of briefChannels)
     if (!assets.some((a) => a.channel === ch)) out.push({ where: ch, rule: "missing_channel", detail: `No content for ${ch}` });
-
-  const groups = new Map<string, Set<string>>();
-  for (const a of assets) {
-    const k = `${a.channel}/${a.kind}`;
-    groups.set(k, (groups.get(k) ?? new Set()).add(a.variant));
-  }
-  for (const [k, v] of groups) if (v.size < 2) out.push({ where: k, rule: "needs_variants", detail: "Provide at least 2 distinct variants to test" });
   return out;
 }
 

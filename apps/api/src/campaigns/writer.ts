@@ -27,6 +27,17 @@ const RULES = `Rules:
 - Any link must be https, on an allowed domain, and include utm_source, utm_medium and utm_campaign.
 - You only create drafts. Nothing is published or sent; a human reviews everything.`;
 
+/** One version of each kind of copy per channel (the first one written), always labelled "A", whatever the model returned. */
+export function oneVersion(assets: ContentAsset[]): ContentAsset[] {
+  const seen = new Set<string>();
+  return assets.filter((a) => {
+    const k = `${a.channel}/${a.kind}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).map((a) => ({ ...a, variant: "A" }));
+}
+
 const feedbackText = (f?: string[]) => (f?.length ? `\n\nYour previous answer was rejected. Fix these problems:\n- ${f.join("\n- ")}` : "");
 /** A rewrite: what to move away from, and what the reviewer asked for (which never overrides the rules above). */
 const rewriteText = (guidance?: string, previous?: string[]) => [
@@ -41,7 +52,7 @@ export class OpenAIWriter implements CampaignWriter {
     apiCheck();
     const model = new ChatOpenAI({ model: modelName() }).withStructuredOutput(CampaignPlan, { name: "campaign_plan" });
     const res = await model.invoke([
-      { role: "system", content: `You are a campaign planner for a marketing team.\n${RULES}\n- Only plan for the requested channels. Experiments must test one variable each.` },
+      { role: "system", content: `You are a campaign planner for a marketing team.\n${RULES}\n- Only plan for the requested channels. Do not plan A/B tests: return an empty experiments list.` },
       { role: "user", content: `Create a campaign plan.\n\nBRIEF:\n${JSON.stringify(brief)}\n\nCONTEXT:\n${JSON.stringify(context)}${feedbackText(feedback)}` },
     ]);
     return CampaignPlan.parse(res);
@@ -52,14 +63,15 @@ export class OpenAIWriter implements CampaignWriter {
     const model = new ChatOpenAI({ model: modelName() }).withStructuredOutput(ContentDraft, { name: "content_draft" });
     const res = await model.invoke([
       { role: "system", content: `You are a marketing copywriter.\n${RULES}
-- For every channel in the brief, write at least 2 distinct variants (labelled "A", "B", ...) of each content kind.
+- For every channel in the brief, write exactly ONE version of each content kind, labelled "A". Do not write alternative versions.
 - Valid kinds per channel: google_ads: ad_headline, ad_description, cta; meta_ads: ad_headline, ad_description, social_post, cta.
 - Aim for these lengths (characters, spaces count): Google Ads headline 18-27, description 60-84; Meta headline 25-36, description 80-115; button text under 25; social post under 480.
 - Hard length limits in characters: google_ads ad_headline 30 / ad_description 90; meta_ads ad_headline 40 / ad_description 125; cta 40; social_post 600. Count characters carefully and aim for about 80% of the limit (for example 24 characters or fewer for a Google Ads headline) so nothing goes over.
 - List every approved claim you rely on in claimsUsed (verbatim); use [] if none.` },
       { role: "user", content: `Write the content variants.\n\nBRIEF:\n${JSON.stringify(brief)}\n\nPLAN:\n${JSON.stringify(plan)}\n\nCONTEXT:\n${JSON.stringify(context)}${rewriteText(guidance, previous)}${feedbackText(feedback)}` },
     ]);
-    return ContentDraft.parse(res);
+    const draft = ContentDraft.parse(res);
+    return { assets: oneVersion(draft.assets) };
   }
 
   async shorten({ asset, limit, brief, context, siblings }: Parameters<CampaignWriter["shorten"]>[0]) {

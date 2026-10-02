@@ -95,7 +95,7 @@ export function friendlyViolation(raw: string): string {
   const [, where, rule, detail] = m;
   const [channel, kind, variant] = where.split("/");
   const name = CHANNEL_NAME[channel] ?? label(channel);
-  const what = kind ? `${name} ${KIND_LABEL[kind] ?? label(kind)}${variant ? ` (version ${variant})` : ""}` : name;
+  const what = kind ? `${name} ${KIND_LABEL[kind] ?? label(kind)}${variant && variant !== "A" ? ` (version ${variant})` : ""}` : name;
   return `${what} ${friendlyRule(rule, detail)}`;
 }
 
