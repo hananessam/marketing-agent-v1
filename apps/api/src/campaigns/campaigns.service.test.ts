@@ -5,6 +5,7 @@ import type { Db } from "../db";
 import { RunsService } from "../runs/runs.service";
 import { createTestDb, schema } from "../test/helpers";
 import { ActionsService } from "../actions/actions.service";
+import { ProgressService } from "../runs/progress.service";
 import { ToolRunnerService } from "../tools/tool-runner.service";
 import { CampaignsService } from "./campaigns.service";
 import type { ContentAsset, ContentDraft } from "./content.schema";
@@ -445,5 +446,69 @@ describe("rewriting the copy with the AI", () => {
 
     db.update(schema.campaigns).set({ status: "approved" }).where(eq(schema.campaigns.id, campaignId)).run();
     await expect(svc.regenerateContent("w", campaignId)).rejects.toThrow(/Only a draft/);
+  });
+});
+
+
+describe("live progress while a draft is being written", () => {
+  function watched(writer: Partial<CampaignWriter> = {}) {
+    const progress = new ProgressService();
+    const t = new ToolRunnerService(db, progress);
+    const full: CampaignWriter = { plan: async () => plan(), content: async () => goodDraft(), shorten: async () => [], ...writer };
+    return { svc: new CampaignsService(db, t, runs, full, new ActionsService(db), progress), progress };
+  }
+  const names = (r: { events: { name: string }[] }) => r.events.map((e) => e.name);
+
+  it("shows the tool or step that is running right now, from inside the work", async () => {
+    let during: ReturnType<CampaignsService["generationProgress"]> | undefined;
+    let before: ReturnType<CampaignsService["generationProgress"]> | undefined;
+    const ref: { svc?: CampaignsService } = {};
+    const w = watched({
+      plan: async () => { during = ref.svc!.generationProgress("w", "k1"); return plan(); },
+      content: async () => { before = ref.svc!.generationProgress("w", "k1"); return goodDraft(); },
+    });
+    ref.svc = w.svc;
+    await w.svc.generate("w", brief, undefined, "k1");
+
+    // while the plan was being written: the three lookups are finished and writing the plan is the thing in progress
+    expect(during!.status).toBe("running");
+    expect(during!.events.filter((e) => e.status === "running").map((e) => e.name)).toEqual(["write_plan"]);
+    expect(during!.events.filter((e) => e.kind === "tool").map((e) => [e.name, e.status])).toEqual([
+      ["get_brand_guidelines", "done"], ["get_product_information", "done"], ["get_audience_segments", "done"],
+    ]);
+    expect(before!.events.filter((e) => e.status === "running").map((e) => e.name)).toEqual(["write_content"]);
+  });
+
+  it("keeps the whole story once finished, in order, all done", async () => {
+    const w = watched();
+    await w.svc.generate("w", brief, undefined, "k2");
+    const r = w.svc.generationProgress("w", "k2");
+    expect(r.status).toBe("finished");
+    expect(names(r)).toEqual(["load_context", "get_brand_guidelines", "get_product_information", "get_audience_segments", "write_plan", "check_plan", "write_content", "check_content"]);
+    expect(r.events.every((e) => e.status === "done" && e.endedAt)).toBe(true);
+  });
+
+  it("shows the repair steps too, and a failed step as an error", async () => {
+    const w = watched({ content: async () => ({ assets: [asset("A", "This headline is far too long to fit"), asset("B", "Fine one")] }), shorten: async () => ["Shorter headline"] });
+    await w.svc.generate("w", brief, undefined, "k3");
+    expect(names(w.svc.generationProgress("w", "k3"))).toContain("fix_lengths");
+
+    const bad = watched({ plan: async () => { throw new Error("model down"); } });
+    const res = await bad.svc.generate("w", { ...brief, durationDays: 21 }, undefined, "k4"); // a different brief: an identical one would reuse the earlier run
+    expect(res.status).toBe("failed");
+    const events = bad.svc.generationProgress("w", "k4").events; // still readable after a failure
+    expect(events.find((e) => e.name === "write_plan")?.status).toBe("error");
+    expect(events.some((e) => e.status === "running")).toBe(false);
+  });
+
+  it("knows nothing about other keys or other workspaces, and works without a watcher", async () => {
+    const w = watched();
+    await w.svc.generate("w", brief, undefined, "k5");
+    expect(w.svc.generationProgress("w", "nope")).toEqual({ status: "waiting", events: [] });
+    expect(w.svc.generationProgress("other", "k5")).toEqual({ status: "waiting", events: [] });
+    // the existing way of building the service (no progress tracker) still works
+    const plain = make({});
+    await expect(plain.svc.generate("w", { ...brief, durationDays: 30 }, undefined, "k6")).resolves.toMatchObject({ status: "awaiting_approval" });
+    expect(plain.svc.generationProgress("w", "k6")).toEqual({ status: "waiting", events: [] }); // nothing is tracking, so nothing to show
   });
 });

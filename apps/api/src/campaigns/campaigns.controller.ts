@@ -10,8 +10,14 @@ export class CampaignsController {
   constructor(private readonly campaigns: CampaignsService) {}
 
   @Post("campaigns/generate")
-  generate(@WorkspaceId() ws: string, @Headers("idempotency-key") key: string | undefined, @Body(new ZodValidationPipe(GenerateBody)) body: z.infer<typeof GenerateBody>) {
-    return this.campaigns.generate(ws, body.brief, key);
+  generate(@WorkspaceId() ws: string, @Headers("idempotency-key") key: string | undefined, @Headers("x-progress-key") progressKey: string | undefined, @Body(new ZodValidationPipe(GenerateBody)) body: z.infer<typeof GenerateBody>) {
+    return this.campaigns.generate(ws, body.brief, key, progressKey);
+  }
+
+  /** Live view of a draft being written: which tool or step is running, and what has finished. Poll it. */
+  @Get("campaigns/progress/:key")
+  progress(@WorkspaceId() ws: string, @Param("key") key: string) {
+    return this.campaigns.generationProgress(ws, key);
   }
 
   @Get("campaigns")

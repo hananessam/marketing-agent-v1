@@ -17,6 +17,8 @@ export type CampaignDeps = {
   /** What the reviewer asked to change, and the wording to move away from. Only used with `plan`. */
   guidance?: string;
   previous?: string[];
+  /** Called when a step starts; the returned function is called when it ends. Lets the page show what is happening. */
+  onStep?: (name: string) => (ok: boolean) => void;
 };
 
 const State = Annotation.Root({
@@ -52,22 +54,34 @@ function checkPlan(plan: CampaignPlan, brief: CampaignBrief, brand: BrandRules):
 }
 
 export function buildCampaignGraph(deps: CampaignDeps) {
+  /** Reports a node's start and end without changing what it does. */
+  const track = <S, R>(name: string, fn: (s: S) => R | Promise<R>) => async (s: S): Promise<R> => {
+    const end = deps.onStep?.(name);
+    try {
+      const out = await fn(s);
+      end?.(true);
+      return out;
+    } catch (e) {
+      end?.(false);
+      throw e;
+    }
+  };
   return new StateGraph(State)
-    .addNode("load_context", async () => ({ context: await deps.loadContext(), plan: deps.plan, planAttempts: 0, contentAttempts: 0, repairAttempts: 0, planErrors: [], contentErrors: [], contentViolations: [], shortened: [] }))
-    .addNode("write_plan", async (s) => ({
+    .addNode("load_context", track("load_context", async () => ({ context: await deps.loadContext(), plan: deps.plan, planAttempts: 0, contentAttempts: 0, repairAttempts: 0, planErrors: [], contentErrors: [], contentViolations: [], shortened: [] })))
+    .addNode("write_plan", track("write_plan", async (s: CampaignState) => ({
       plan: await deps.writer.plan({ brief: deps.brief, context: s.context, feedback: s.planErrors.length ? s.planErrors : undefined }),
       planAttempts: s.planAttempts + 1,
-    }))
-    .addNode("check_plan", (s) => ({ planErrors: checkPlan(s.plan!, deps.brief, brandRules(s.context.brand)) }))
-    .addNode("write_content", async (s) => ({
+    })))
+    .addNode("check_plan", track("check_plan", (s: CampaignState) => ({ planErrors: checkPlan(s.plan!, deps.brief, brandRules(s.context.brand)) })))
+    .addNode("write_content", track("write_content", async (s: CampaignState) => ({
       content: await deps.writer.content({ brief: deps.brief, plan: s.plan!, context: s.context, feedback: s.contentErrors.length ? s.contentErrors : undefined, guidance: deps.guidance, previous: deps.previous }),
       contentAttempts: s.contentAttempts + 1,
-    }))
-    .addNode("check_content", (s) => {
+    })))
+    .addNode("check_content", track("check_content", (s: CampaignState) => {
       const violations = checkDraft(s.content!.assets, deps.brief.channels, brandRules(s.context.brand));
       return { contentViolations: violations, contentErrors: formatViolations(violations) };
-    })
-    .addNode("fix_lengths", async (s) => {
+    }))
+    .addNode("fix_lengths", track("fix_lengths", async (s: CampaignState) => {
       const brand = brandRules(s.context.brand);
       const assets = s.content!.assets.map((a) => ({ ...a }));
       const log = [...s.shortened];
@@ -89,7 +103,7 @@ export function buildCampaignGraph(deps: CampaignDeps) {
         }
       }));
       return { content: { assets }, shortened: log, repairAttempts: s.repairAttempts + 1 };
-    })
+    }))
     .addEdge(START, "load_context")
     .addConditionalEdges("load_context", () => (deps.plan ? "write_content" : "write_plan"))
     .addEdge("write_plan", "check_plan")

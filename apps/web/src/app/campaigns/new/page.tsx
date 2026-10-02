@@ -3,9 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { GenerationProgress } from "@/components/generation-progress";
 import { api } from "@/lib/api";
 import { friendlyViolation } from "@/lib/format";
-import type { Company, GenerateResult } from "@/lib/types";
+import type { Company, GenerateResult, GenerationProgress as Progress } from "@/lib/types";
 import { Button, Card, Empty, ErrorBox, PageHeader, inputClass } from "@/components/ui";
 
 const GOALS = [
@@ -32,9 +33,13 @@ export default function NewCampaignPage() {
   const chosenProduct = product || products[0]?.name || "";
   const chosenAudience = audience || audiences[0]?.name || "";
 
+  // The page names its own request so it can watch it while it runs.
+  const [progressKey, setProgressKey] = useState<string | null>(null);
+
   const create = useMutation({
-    mutationFn: () => api<GenerateResult>("/campaigns/generate", {
+    mutationFn: (key: string) => api<GenerateResult>("/campaigns/generate", {
       method: "POST",
+      headers: { "x-progress-key": key },
       // Everything else the assistant needs comes from your company details; the rest uses sensible defaults.
       body: { brief: { objective: goal, product: chosenProduct, audience: chosenAudience, channels, durationDays: 14, constraints: [] } },
     }),
@@ -43,8 +48,15 @@ export default function NewCampaignPage() {
       if (res.output.campaignId) router.push(`/campaigns/${res.output.campaignId}`);
     },
   });
+  const progress = useQuery({
+    queryKey: ["campaign-progress", progressKey],
+    queryFn: () => api<Progress>(`/campaigns/progress/${progressKey}`),
+    enabled: create.isPending && progressKey !== null,
+    refetchInterval: 700,
+    refetchIntervalInBackground: true, // keep going even if the tab is not in front: the work was just started from here
+  });
   const failure = create.data && !create.data.output.campaignId ? create.data.output : null;
-  const submit = (e: FormEvent) => { e.preventDefault(); create.mutate(); };
+  const submit = (e: FormEvent) => { e.preventDefault(); const key = crypto.randomUUID(); setProgressKey(key); create.mutate(key); };
 
   return (
     <>
@@ -79,13 +91,14 @@ export default function NewCampaignPage() {
             </div>
           </Card>
 
+          {create.isPending && <GenerationProgress events={progress.data?.events ?? []} />}
           {create.error && <ErrorBox error={create.error.message} />}
           {failure && (
             <ErrorBox error="We couldn't write a draft that follows your brand rules, so nothing was saved. Please try again."
               details={[...(failure.planErrors ?? []), ...(failure.contentErrors ?? [])].map(friendlyViolation).concat(failure.error ? [failure.error] : [])} />
           )}
           <Button type="submit" disabled={create.isPending || channels.length === 0 || !chosenProduct || !chosenAudience}>
-            {create.isPending ? "Writing your draft… about 20 seconds" : "Create draft"}
+            {create.isPending ? "Writing your draft…" : "Create draft"}
           </Button>
           {channels.length === 0 && <span className="ml-3 text-sm text-zinc-500">Pick at least one place.</span>}
         </form>

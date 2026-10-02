@@ -1,11 +1,12 @@
 import { aggregate, calculateMetrics, CampaignBrief, type CampaignPlan } from "@marketing/shared";
-import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException, Optional, UnprocessableEntityException } from "@nestjs/common";
 import { and, asc, desc, eq, gte, lte, max, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { schema, type Db } from "../db";
 import { ActionsService } from "../actions/actions.service";
 import { DB } from "../db/database.module";
+import { ProgressService } from "../runs/progress.service";
 import { RunsService } from "../runs/runs.service";
 import { ToolRunnerService } from "../tools/tool-runner.service";
 import { checkAsset, formatViolations, isSoftViolation, maxLength, type BrandRules } from "./content-policy";
@@ -31,11 +32,12 @@ export class CampaignsService {
     private readonly runs: RunsService,
     @Inject(CAMPAIGN_WRITER) private readonly writer: CampaignWriter,
     private readonly actions: ActionsService,
+    @Optional() private readonly progress?: ProgressService,
   ) {}
 
   // ---------- generation ----------
 
-  async generate(workspaceId: string, brief: CampaignBrief, idempotencyKey?: string) {
+  async generate(workspaceId: string, brief: CampaignBrief, idempotencyKey?: string, progressKey?: string) {
     const product = this.db.select().from(schema.products).where(eq(schema.products.workspaceId, workspaceId)).all()
       .find((p) => norm(p.name) === norm(brief.product) || p.id === brief.product);
     if (!product) throw new UnprocessableEntityException(`Unknown product "${brief.product}"; create it before planning a campaign`);
@@ -52,10 +54,12 @@ export class CampaignsService {
       return { runId: raced.id, status: raced.status, reused: true, output: raced.output };
     }
 
+    this.progress?.start(runId, progressKey ? { workspaceId, key: progressKey } : undefined);
     try {
       const graph = buildCampaignGraph({
         brief, writer: this.writer,
         loadContext: () => this.loadContext(workspaceId, runId, product.id),
+        onStep: (name) => this.progress?.begin(runId, "step", name) ?? (() => {}),
       });
       const s = await graph.invoke({});
 
@@ -77,7 +81,21 @@ export class CampaignsService {
       const output = { error: e instanceof Error ? e.message : String(e) };
       this.runs.finish(workspaceId, runId, "failed", output);
       return { runId, status: "failed" as const, reused: false, output };
+    } finally {
+      this.progress?.finish(runId);
     }
+  }
+
+  /**
+   * What a draft that is being written is doing right now. The page picks its own progress key before it asks for the
+   * draft, so it can watch the work it just started. (This is separate from the idempotency key, which keeps identical
+   * requests from creating duplicates.)
+   */
+  generationProgress(workspaceId: string, progressKey: string) {
+    const runId = this.progress?.runFor(workspaceId, progressKey);
+    const run = runId ? this.runs.get(workspaceId, runId) : undefined;
+    if (!runId || !run) return { status: "waiting" as const, events: [] };
+    return { status: run.status === "running" ? ("running" as const) : ("finished" as const), events: this.progress?.events(runId) ?? [] };
   }
 
   /** Copy being rewritten right now, so a double click cannot start two rewrites of one campaign. */

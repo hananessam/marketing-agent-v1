@@ -1,9 +1,10 @@
 import { decide } from "@marketing/shared";
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { DB } from "../db/database.module";
+import { ProgressService } from "../runs/progress.service";
 import { schema, type Db } from "../db";
 import { readTools } from "./read-tools";
 import type { ToolDefinition } from "./tool.types";
@@ -16,7 +17,7 @@ export type ToolResult =
 export class ToolRunnerService {
   private readonly registry = new Map<string, ToolDefinition<any, any>>(readTools.map((t) => [t.name, t]));
 
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(@Inject(DB) private readonly db: Db, @Optional() private readonly progress?: ProgressService) {}
 
   has(name: string) {
     return this.registry.has(name);
@@ -32,8 +33,21 @@ export class ToolRunnerService {
     }));
   }
 
-  /** Validate args, enforce policy, execute, and write an audit row either way. */
+  /** Runs a tool and, for anyone watching the run, shows it as in progress until it ends. */
   async run(workspaceId: string, runId: string, name: string, rawArgs: unknown): Promise<ToolResult> {
+    const end = this.progress?.begin(runId, "tool", name);
+    try {
+      const res = await this.execute(workspaceId, runId, name, rawArgs);
+      end?.(res.status === "ok");
+      return res;
+    } catch (e) {
+      end?.(false);
+      throw e;
+    }
+  }
+
+  /** Validate args, enforce policy, execute, and write an audit row either way. */
+  private async execute(workspaceId: string, runId: string, name: string, rawArgs: unknown): Promise<ToolResult> {
     const tool = this.registry.get(name);
     if (!tool) throw new NotFoundException(`Unknown tool: ${name}`);
 

@@ -27,12 +27,12 @@ export function errorDetails(e: unknown): string[] {
     : v && typeof v === "object" && "message" in v ? String((v as { message: unknown }).message) : JSON.stringify(v)));
 }
 
-export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function api<T>(path: string, init: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
       method: init.method ?? "GET",
-      headers: { "x-workspace-id": WORKSPACE, ...(init.body !== undefined ? { "content-type": "application/json" } : {}) },
+      headers: { "x-workspace-id": WORKSPACE, ...(init.body !== undefined ? { "content-type": "application/json" } : {}), ...init.headers },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
   } catch {

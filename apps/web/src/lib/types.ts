@@ -20,6 +20,9 @@ export type Approval = { id: string; action: string; summary: string; status: "p
 
 export type GenerateResult = { runId: string; status: string; reused: boolean; output: { campaignId?: string; needsFixes?: string[]; planErrors?: string[]; contentErrors?: string[]; error?: string } };
 
+export type ProgressEvent = { id: number; kind: "tool" | "step"; name: string; status: "running" | "done" | "error"; startedAt: string; endedAt: string | null };
+export type GenerationProgress = { status: "waiting" | "running" | "finished"; events: ProgressEvent[] };
+
 export type Recommendation = {
   title: string; actionType: string; campaignId: string; action: string; rationale: string; measurableOutcome: string;
   evidence: { campaignId: string; metric: Metric; period: "current" | "previous"; value: number }[];
