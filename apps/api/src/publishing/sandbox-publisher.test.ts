@@ -40,6 +40,11 @@ beforeEach(async () => {
     a("g2", "googleonly", "google_ads:A", "ad_headline", "Search me"),
   ]).run();
   void publishSpy;
+  db.insert(schema.campaigns).values([
+    { id: "run", workspaceId: "w", name: "Running Ads", channel: "meta_ads", status: "active", source: "meta_ads" },
+    { id: "quiet", workspaceId: "w", name: "No Spend Yet", channel: "meta_ads", status: "active", source: "meta_ads" },
+  ]).run();
+  db.insert(schema.campaignMetrics).values(["2026-09-30", "2026-10-01"].map((date, i) => ({ workspaceId: "w", campaignId: "run", channel: "meta_ads", date, impressions: 1000, clicks: 50, spend: 20 + i * 10, conversions: 2, revenue: 100, ingestedAt: "x" }))).run();
 });
 afterEach(() => { delete process.env.EXECUTION_MODE; vi.restoreAllMocks(); });
 
@@ -104,5 +109,69 @@ describe("live mode still goes to the real service", () => {
     process.env.EXECUTION_MODE = "live";
     expect(router.status("w")).toMatchObject({ mode: "live", meta: { connected: false, canPublish: false }, google: { available: false } });
     expect(() => router.preflight("w", "ready", META)).toThrow(/Connect your Meta Ads account/);
+  });
+});
+
+const act = (type: string, payload: unknown) => actions.propose("w", { type, payload, source: "manual", requestedBy: "tester" } as never);
+const campaign = (id: string) => db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get()!;
+
+describe("demo mode: pause and budget changes are simulated in the sandbox", () => {
+  it("pauses the campaign after approval, and not before", async () => {
+    const r = await act("pause_campaign", { campaignId: "run", reason: "wasting spend" });
+    expect(r.action.status).toBe("awaiting_approval");
+    expect(campaign("run").status).toBe("active");
+    const out = await approveLatest();
+    expect(out.action.status).toBe("executed");
+    expect(out.action.result).toMatchObject({ mode: "demo", sandbox: true, outcome: "paused", from: "active", to: "paused" });
+    expect(campaign("run").status).toBe("paused");
+    await expect(act("pause_campaign", { campaignId: "run" })).rejects.toThrow(/already paused/);
+  });
+
+  it("changes the budget starting from the recent average spend, and later changes build on the last one", async () => {
+    await act("change_budget", { campaignId: "run", direction: "increase", percent: 10 });
+    const first = await approveLatest();
+    expect(first.action.result).toMatchObject({ outcome: "budget_changed", from: 25, to: 27.5, currency: "USD" });
+    await act("change_budget", { campaignId: "run", direction: "decrease", percent: 10 });
+    const second = await approveLatest();
+    expect(second.action.result).toMatchObject({ from: 27.5, to: 24.75 });
+  });
+
+  it("starts from the budget a campaign was posted with", async () => {
+    await propose({ campaignId: "ready", meta: META });
+    await approveLatest();
+    await act("change_budget", { campaignId: "ready", direction: "increase", percent: 10 });
+    expect((await approveLatest()).action.result).toMatchObject({ from: 10, to: 11 });
+  });
+
+  it("fails clearly, changing nothing, when there is no budget to start from or the limits are hit", async () => {
+    await act("change_budget", { campaignId: "quiet", direction: "increase", percent: 5 });
+    const none = await approveLatest();
+    expect(none.action.status).toBe("failed");
+    expect((none.action.result as any).error).toMatch(/no budget to change/);
+  });
+
+  it("keeps the sandbox budget between 1 and 50 USD", async () => {
+    db.insert(schema.campaigns).values([
+      { id: "big", workspaceId: "w", name: "Big", channel: "meta_ads", status: "active", source: "meta_ads" },
+      { id: "tiny", workspaceId: "w", name: "Tiny", channel: "meta_ads", status: "active", source: "meta_ads" },
+    ]).run();
+    const spend = (campaignId: string, v: number) => ({ workspaceId: "w", campaignId, channel: "meta_ads", date: "2026-10-01", impressions: 1, clicks: 1, spend: v, conversions: 0, revenue: 0, ingestedAt: "x" });
+    db.insert(schema.campaignMetrics).values([spend("big", 48), spend("tiny", 1.05)]).run();
+    await act("change_budget", { campaignId: "big", direction: "increase", percent: 10 });
+    const high = await approveLatest();
+    expect(high.action.status).toBe("failed");
+    expect((high.action.result as any).error).toMatch(/limited to 50/);
+    await act("change_budget", { campaignId: "tiny", direction: "decrease", percent: 10 });
+    const low = await approveLatest();
+    expect(low.action.status).toBe("failed");
+    expect((low.action.result as any).error).toMatch(/below 1/);
+  });
+
+  it("leaves live and shadow behaviour alone: nothing is simulated there", async () => {
+    process.env.EXECUTION_MODE = "shadow";
+    await act("pause_campaign", { campaignId: "run" });
+    const out = await approveLatest();
+    expect(out.action.status).toBe("shadowed");
+    expect(campaign("run").status).toBe("active");
   });
 });

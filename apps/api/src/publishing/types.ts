@@ -9,5 +9,7 @@ export interface Publisher {
   /** Synchronous checks (budget cap, landing page, permissions). Throws a readable HTTP error if the request cannot be posted. */
   preflight(workspaceId: string, campaignId: string, meta?: MetaSettings): void;
   publish(action: ActionRow): Promise<Outcome>;
+  /** Demo only: carries out pause and budget actions in the sandbox. Null means "not handled here". */
+  perform?(action: ActionRow): Promise<Outcome | null>;
 }
 export const PUBLISHER = Symbol("PUBLISHER");

@@ -134,6 +134,11 @@ export class ActionsService {
     }
     // Publishing a campaign really posts (paused ads on Meta) only when live mode is on and a publisher is wired in.
     if (action.type === "publish_campaign" && this.posts) return this.publisher!.publish(action);
+    // Demo mode: pausing and re-budgeting are carried out in the ads sandbox too.
+    if (this.mode === "demo" && this.publisher?.perform) {
+      const done = await this.publisher.perform(action);
+      if (done) return done;
+    }
     const live = LIVE_EXECUTORS[action.type];
     if (this.mode === "live" && live) return live(action);
     return {

@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable, UnprocessableEntityException } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { schema, type Db } from "../db";
 import { DB } from "../db/database.module";
@@ -73,6 +73,48 @@ export class SandboxPublisher implements Publisher {
 
     const posted = Object.keys(platforms).length > 0;
     return { status: posted ? "executed" : "shadowed", result: { mode: "demo", platforms } };
+  }
+
+  /** Pause and budget changes, applied to the sandbox only. A pause really marks the campaign paused in this app, so the demo stays consistent. */
+  async perform(action: ActionRow): Promise<Outcome | null> {
+    const ws = action.workspaceId;
+    if (action.type === "pause_campaign") {
+      const { campaignId } = action.payload as { campaignId: string };
+      const c = this.db.select().from(schema.campaigns).where(and(eq(schema.campaigns.workspaceId, ws), eq(schema.campaigns.id, campaignId))).get();
+      if (!c) throw new ConflictException("Campaign not found");
+      if (c.status === "paused") throw new ConflictException("This campaign is already paused");
+      this.db.update(schema.campaigns).set({ status: "paused" }).where(and(eq(schema.campaigns.workspaceId, ws), eq(schema.campaigns.id, campaignId))).run();
+      return { status: "executed", result: { mode: "demo", sandbox: true, outcome: "paused", campaign: c.name, from: c.status, to: "paused" } };
+    }
+    if (action.type === "change_budget") {
+      const { campaignId, direction, percent } = action.payload as { campaignId: string; direction: "increase" | "decrease"; percent: number };
+      const c = this.db.select().from(schema.campaigns).where(and(eq(schema.campaigns.workspaceId, ws), eq(schema.campaigns.id, campaignId))).get();
+      if (!c) throw new ConflictException("Campaign not found");
+      const from = this.currentBudget(ws, campaignId);
+      if (from === null) throw new ConflictException("The sandbox has no budget to change for this campaign yet: it has not been posted and has no recorded spend.");
+      const factor = direction === "increase" ? 1 + percent / 100 : 1 - percent / 100;
+      const to = Math.round(from * factor * 100) / 100;
+      if (to < SANDBOX.minDailyBudget) throw new UnprocessableEntityException(`The daily budget cannot go below ${SANDBOX.minDailyBudget} ${SANDBOX.currency} (it would be ${to}).`);
+      if (to > SANDBOX.maxDailyBudget) throw new UnprocessableEntityException(`The daily budget is limited to ${SANDBOX.maxDailyBudget} ${SANDBOX.currency} (it would be ${to}).`);
+      return { status: "executed", result: { mode: "demo", sandbox: true, outcome: "budget_changed", campaign: c.name, direction, percent, from, to, currency: SANDBOX.currency } };
+    }
+    return null;
+  }
+
+  /** The sandbox's daily budget for a campaign: the last change, else what it was posted with, else its recent average daily spend. */
+  private currentBudget(workspaceId: string, campaignId: string): number | null {
+    const done = this.db.select().from(schema.actions)
+      .where(and(eq(schema.actions.workspaceId, workspaceId), eq(schema.actions.status, "executed"))).orderBy(desc(schema.actions.createdAt), desc(sql`rowid`)).all()
+      .filter((a) => (a.payload as { campaignId?: string }).campaignId === campaignId);
+    for (const a of done) {
+      const r = a.result as { to?: number; platforms?: { meta_ads?: { dailyBudgetMinor?: number } } } | null;
+      if (a.type === "change_budget" && typeof r?.to === "number") return r.to;
+      const minor = r?.platforms?.meta_ads?.dailyBudgetMinor;
+      if (a.type === "publish_campaign" && typeof minor === "number") return minor / 100;
+    }
+    const m = this.db.select({ avg: sql<number | null>`avg(${schema.campaignMetrics.spend})` }).from(schema.campaignMetrics)
+      .where(and(eq(schema.campaignMetrics.workspaceId, workspaceId), eq(schema.campaignMetrics.campaignId, campaignId))).get();
+    return m?.avg && m.avg > 0 ? Math.round(m.avg * 100) / 100 : null;
   }
 
   /** One ad per variant letter of the channel, named after its headline. */

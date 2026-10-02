@@ -28,6 +28,10 @@ export class PublishingRouter implements Publisher {
     return this.mode === "demo" ? this.sandbox.preflight(workspaceId, campaignId, meta) : this.real.preflight(workspaceId, campaignId, meta);
   }
 
+  async perform(action: ActionRow): Promise<Outcome | null> {
+    return this.mode === "demo" ? this.sandbox.perform(action) : null;
+  }
+
   publish(action: ActionRow): Promise<Outcome> {
     return this.mode === "demo" ? this.sandbox.publish(action) : this.real.publish(action);
   }
