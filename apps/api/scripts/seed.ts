@@ -18,15 +18,19 @@ const campaigns = [
   { id: "c_meta_lookalike", name: "Meta Lookalike", channel: "meta_ads", imp: 30000, ctr: 0.012, cr: 0.02, cpc: 0.8, aov: 70 },
 ] as const;
 
-// children first (foreign keys)
-for (const t of [schema.toolCalls, schema.approvals, schema.agentRuns, schema.experiments, schema.campaignAssets, schema.campaignMetrics, schema.reportSchedules, schema.connections]) db.delete(t).run();
+// Everything is cleared, children first (foreign keys), including connected accounts and anything made in the app.
+for (const t of [
+  schema.toolCalls, schema.approvals, schema.actions, schema.tasks, schema.agentRuns, schema.experiments, schema.campaignAssets,
+  schema.campaignMetrics, schema.reportSchedules, schema.oauthStates, schema.connections,
+]) db.delete(t).run();
 db.delete(schema.campaigns).run();
 db.delete(schema.brandProfiles).run();
 db.delete(schema.products).run();
 db.delete(schema.audiences).run();
-db.delete(schema.workspaces).run();
 
-db.insert(schema.workspaces).values({ id: WS, name: "Demo Workspace" }).run();
+// The workspace row is reset rather than deleted: other tables (such as sign-in accounts) may point at it.
+db.insert(schema.workspaces).values({ id: WS, name: "Demo Workspace" })
+  .onConflictDoUpdate({ target: schema.workspaces.id, set: { name: "Demo Workspace", onboardedAt: null } }).run();
 db.insert(schema.brandProfiles).values({
   id: "bp_1", workspaceId: WS,
   voice: "Friendly, concise, practical. No hype.",
