@@ -15,6 +15,8 @@ export type AnalyticsOutput = {
 export const RunAnalyticsBody = z.object({
   endDate: z.iso.date().optional(),
   days: z.number().int().min(3).max(30).default(7),
+  /** Work it out again from the data as it is now, even if a report for the same days already exists. */
+  refresh: z.boolean().optional(),
 });
 export type RunAnalyticsBody = z.infer<typeof RunAnalyticsBody>;
 
@@ -33,7 +35,9 @@ export class AnalyticsService {
     const key = `analytics:${days}:${endDate}`;
 
     const existing = this.runs.findByKey(workspaceId, key);
-    if (existing) return { runId: existing.id, status: existing.status, reused: true, output: existing.output };
+    // A report for the same days is normally reused. Asking to refresh replaces it, unless one is being worked out right now.
+    if (existing && (!body.refresh || existing.status === "running")) return { runId: existing.id, status: existing.status, reused: true, output: existing.output };
+    if (existing) this.runs.releaseKey(workspaceId, existing.id);
 
     let runId: string;
     try {

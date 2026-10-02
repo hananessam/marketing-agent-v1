@@ -75,7 +75,7 @@ export const experiments = sqliteTable("experiments", {
 export const agentRuns = sqliteTable("agent_runs", {
   id: id(), workspaceId: workspaceId(),
   kind: text("kind").notNull(), // analytics | planner
-  status: text("status", { enum: ["running", "succeeded", "failed", "awaiting_approval"] }).notNull(),
+  status: text("status", { enum: ["running", "succeeded", "failed", "awaiting_approval", "discarded"] }).notNull(),
   idempotencyKey: text("idempotency_key"),
   input: text("input", { mode: "json" }), output: text("output", { mode: "json" }),
   retryCount: integer("retry_count").notNull().default(0),

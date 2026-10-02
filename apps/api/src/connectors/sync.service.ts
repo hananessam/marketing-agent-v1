@@ -116,6 +116,8 @@ export class SyncService {
       tx.delete(schema.experiments).where(inArray(schema.experiments.campaignId, ids)).run();
       tx.delete(schema.campaigns).where(inArray(schema.campaigns.id, ids)).run();
     });
+    // The saved analysis was worked out from that sample data, so it no longer describes anything. Retire it.
+    this.runs.discardReports(workspaceId, "analytics");
     return ids.length;
   }
 }

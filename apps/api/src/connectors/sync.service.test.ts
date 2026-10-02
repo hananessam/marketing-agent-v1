@@ -134,6 +134,27 @@ describe("seed purge and connections", () => {
     expect(make().purgeSeedData("w")).toBe(0);
   });
 
+  it("retires the saved analysis along with the sample data it was based on, and only then", async () => {
+    const report = (ws: string, kind: string, status: "succeeded" | "failed", key: string | null) =>
+      db.insert(schema.agentRuns).values({ id: `${ws}-${kind}-${status}`, workspaceId: ws, kind, status, idempotencyKey: key, output: { facts: [] } }).run();
+    report("w", "analytics", "succeeded", "analytics:7:2026-03-09");
+    report("w", "analytics", "failed", null);
+    report("w", "campaign_draft", "succeeded", "campaign:x");
+    report("other", "analytics", "succeeded", "analytics:7:2026-03-09");
+    const status = (id: string) => db.select().from(schema.agentRuns).where(eq(schema.agentRuns.id, id)).get()!;
+
+    // nothing to purge: the report (which may describe real data) is left alone
+    expect(make().purgeSeedData("w")).toBe(0);
+    expect(status("w-analytics-succeeded").status).toBe("succeeded");
+
+    db.insert(schema.campaigns).values({ id: "s1", workspaceId: "w", name: "Seed", channel: "google_ads", status: "active", source: "seed" }).run();
+    expect(make().purgeSeedData("w")).toBe(1);
+    expect(status("w-analytics-succeeded")).toMatchObject({ status: "discarded", idempotencyKey: null }); // retired, and its key is free again
+    expect(status("w-analytics-failed").status).toBe("failed");
+    expect(status("w-campaign_draft-succeeded").status).toBe("succeeded"); // other kinds of run are untouched
+    expect(status("other-analytics-succeeded").status).toBe("succeeded"); // and other workspaces
+  });
+
   it("lists connections without secrets and scopes removal by workspace", async () => {
     const unscheduled: string[] = [];
     const schedule = { info: { cron: "0 5 * * *", timezone: "UTC" }, unschedule: async (id: string) => { unscheduled.push(id); } };

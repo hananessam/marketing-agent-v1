@@ -20,6 +20,15 @@ export class RunsService {
       .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.workspaceId, workspaceId))).run();
   }
 
+  /**
+   * Retires the finished reports of one kind because the data they describe is gone. The runs stay (the audit log
+   * refers to them) but are no longer shown, and their key is freed so the same request is worked out afresh.
+   */
+  discardReports(workspaceId: string, kind: string): number {
+    return this.db.update(schema.agentRuns).set({ status: "discarded", idempotencyKey: null })
+      .where(and(eq(schema.agentRuns.workspaceId, workspaceId), eq(schema.agentRuns.kind, kind), eq(schema.agentRuns.status, "succeeded"))).run().changes;
+  }
+
   /** Free the idempotency key (used as a lock that must not outlive the work). */
   releaseKey(workspaceId: string, runId: string) {
     this.db.update(schema.agentRuns).set({ idempotencyKey: null })

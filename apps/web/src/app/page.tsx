@@ -42,11 +42,14 @@ function Home() {
   const connections = useQuery({ queryKey: ["connections"], queryFn: () => api<Connection[]>("/connections").catch(() => [] as Connection[]) });
 
   const run = useMutation({
-    mutationFn: () => api<{ status: string; output: AnalyticsOutput }>("/analytics/run", { method: "POST", body: { days: 7 } }),
+    // Pressing the button means "look again now", not "show me the report from earlier today".
+    mutationFn: () => api<{ status: string; output: AnalyticsOutput }>("/analytics/run", { method: "POST", body: { days: 7, refresh: true } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["analytics-runs"] }),
   });
-  const latest = runs.data?.find((r) => r.status === "succeeded");
-  const failed = run.data?.status === "failed" ? run.data : null;
+  // The newest finished check decides what is shown: if it failed (for example there is no data any more), an older report is not.
+  const newest = runs.data?.find((r) => r.status !== "running");
+  const latest = newest?.status === "succeeded" ? newest : undefined;
+  const failed = newest?.status === "failed" ? newest : run.data?.status === "failed" ? run.data : null;
 
   const notices = notesFor(campaigns.data ?? [], connections.data ?? []);
 

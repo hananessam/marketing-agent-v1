@@ -117,3 +117,47 @@ describe("analytics service", () => {
     expect((res.output as any).report.recommendations.map((r: any) => r.campaignId)).toEqual(["c1", "c2"]);
   });
 });
+
+describe("refreshing a report", () => {
+  it("works it out again from the data as it is now, instead of returning the earlier report", async () => {
+    const { svc, calls } = makeService(() => report(0.015));
+    const first = await svc.run("w", { endDate: END, days: 7 });
+    expect(calls()).toBe(1);
+
+    // the data changes after that report was made
+    db.delete(schema.campaignMetrics).run();
+    const same = await svc.run("w", { endDate: END, days: 7 });
+    expect(same).toMatchObject({ reused: true, runId: first.runId }); // an ordinary request still reuses it
+    expect(calls()).toBe(1);
+
+    const again = await svc.run("w", { endDate: END, days: 7, refresh: true });
+    expect(again.reused).toBe(false);
+    expect(again.runId).not.toBe(first.runId);
+    expect(again.status).toBe("failed"); // no data any more: said honestly instead of repeating the old numbers
+    expect((again.output as { note: string }).note).toMatch(/No metrics/);
+  });
+
+  it("keeps the earlier report in the history, and the new one is the newest", async () => {
+    const { svc } = makeService(() => report(0.015));
+    const first = await svc.run("w", { endDate: END, days: 7 });
+    const second = await svc.run("w", { endDate: END, days: 7, refresh: true });
+    expect(second.status).toBe("succeeded");
+    const listed = svc.list("w").map((r) => r.id);
+    expect(listed).toEqual([second.runId, first.runId]);
+    // and a later ordinary request reuses the new report, not the old one
+    expect(await svc.run("w", { endDate: END, days: 7 })).toMatchObject({ reused: true, runId: second.runId });
+  });
+
+  it("does not replace a report that is being worked out right now", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow = new AnalyticsService(tools, runs, { recommend: async () => { await gate; return report(0.015); } });
+    const inFlight = slow.run("w", { endDate: END, days: 7 });
+    await new Promise((r) => setTimeout(r, 10));
+    const second = await slow.run("w", { endDate: END, days: 7, refresh: true });
+    expect(second.reused).toBe(true); // joined the one already running
+    release();
+    const first = await inFlight;
+    expect(second.runId).toBe(first.runId);
+  });
+});
