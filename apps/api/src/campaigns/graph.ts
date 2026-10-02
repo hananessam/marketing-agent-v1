@@ -1,10 +1,10 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import type { CampaignBrief, CampaignPlan } from "@marketing/shared";
-import { checkDraft, checkText, formatViolations, type BrandRules } from "./content-policy";
+import { checkDraft, checkText, formatViolations, type BrandRules, type Violation } from "./content-policy";
 import type { ContentDraft } from "./content.schema";
 import type { BrandContext, CampaignWriter } from "./writer";
 
-export const MAX_ATTEMPTS = 2;
+export const MAX_ATTEMPTS = 3;
 
 export type CampaignDeps = {
   brief: CampaignBrief;
@@ -19,6 +19,7 @@ const State = Annotation.Root({
   planAttempts: Annotation<number>(),
   content: Annotation<ContentDraft | undefined>(),
   contentErrors: Annotation<string[]>(),
+  contentViolations: Annotation<Violation[]>(),
   contentAttempts: Annotation<number>(),
 });
 export type CampaignState = typeof State.State;
@@ -42,7 +43,7 @@ function checkPlan(plan: CampaignPlan, brief: CampaignBrief, brand: BrandRules):
 
 export function buildCampaignGraph(deps: CampaignDeps) {
   return new StateGraph(State)
-    .addNode("load_context", async () => ({ context: await deps.loadContext(), planAttempts: 0, contentAttempts: 0, planErrors: [], contentErrors: [] }))
+    .addNode("load_context", async () => ({ context: await deps.loadContext(), planAttempts: 0, contentAttempts: 0, planErrors: [], contentErrors: [], contentViolations: [] }))
     .addNode("write_plan", async (s) => ({
       plan: await deps.writer.plan({ brief: deps.brief, context: s.context, feedback: s.planErrors.length ? s.planErrors : undefined }),
       planAttempts: s.planAttempts + 1,
@@ -52,7 +53,10 @@ export function buildCampaignGraph(deps: CampaignDeps) {
       content: await deps.writer.content({ brief: deps.brief, plan: s.plan!, context: s.context, feedback: s.contentErrors.length ? s.contentErrors : undefined }),
       contentAttempts: s.contentAttempts + 1,
     }))
-    .addNode("check_content", (s) => ({ contentErrors: formatViolations(checkDraft(s.content!.assets, deps.brief.channels, brandRules(s.context.brand))) }))
+    .addNode("check_content", (s) => {
+      const violations = checkDraft(s.content!.assets, deps.brief.channels, brandRules(s.context.brand));
+      return { contentViolations: violations, contentErrors: formatViolations(violations) };
+    })
     .addEdge(START, "load_context")
     .addEdge("load_context", "write_plan")
     .addEdge("write_plan", "check_plan")

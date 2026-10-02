@@ -62,7 +62,10 @@ export function checkAsset(a: ContentAsset, brand: BrandRules, label = `${a.chan
   const out = checkText(label, a.content, brand);
   if (!(ALLOWED_KINDS[a.channel] ?? []).includes(a.kind)) out.push({ where: label, rule: "invalid_kind", detail: `${a.kind} is not valid for ${a.channel}` });
   const max = maxLength(a.channel, a.kind);
-  if (max && a.content.length > max) out.push({ where: label, rule: "too_long", detail: `${a.content.length} chars, max ${max}` });
+  if (max && a.content.length > max) {
+    // Quote the text and say by how much, so a retry can fix the exact line instead of guessing.
+    out.push({ where: label, rule: "too_long", detail: `${a.content.length} chars, max ${max}; shorten by at least ${a.content.length - max}: "${a.content.slice(0, 160)}"` });
+  }
   if (!a.content.trim()) out.push({ where: label, rule: "empty", detail: "Empty content" });
   for (const c of a.claimsUsed)
     if (!brand.approvedClaims.some((x) => norm(x) === norm(c))) out.push({ where: label, rule: "unapproved_claim_cited", detail: `Cited claim "${c}" is not an approved claim` });
@@ -85,5 +88,11 @@ export function checkDraft(assets: ContentAsset[], briefChannels: string[], bran
   for (const [k, v] of groups) if (v.size < 2) out.push({ where: k, rule: "needs_variants", detail: "Provide at least 2 distinct variants to test" });
   return out;
 }
+
+/**
+ * Fit problems a person can fix by editing. Everything else (banned phrases, unsupported claims, bad links,
+ * missing channels) is a hard stop: the draft is rejected rather than saved.
+ */
+export const isSoftViolation = (v: Violation) => v.rule === "too_long";
 
 export const formatViolations = (v: Violation[]) => v.map((x) => `[${x.where}] ${x.rule}: ${x.detail}`);

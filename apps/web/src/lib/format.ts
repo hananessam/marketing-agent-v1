@@ -83,3 +83,43 @@ export function humanize(text: string, names: Map<string, string>): string {
     .replace(/\bROAS\b/g, "return on ad spend")
     .replace(/\bCTR\b/g, "click rate");
 }
+
+const KIND_LABEL: Record<string, string> = {
+  email_subject: "subject line", email_body: "body", ad_headline: "headline", ad_description: "description",
+  social_post: "post", landing_copy: "landing page copy", cta: "button text",
+};
+const CHANNEL_NAME: Record<string, string> = { email: "Email", google_ads: "Google Ads", meta_ads: "Meta Ads", linkedin: "LinkedIn", blog: "Blog" };
+
+/** "[google_ads/ad_headline/A] too_long: 34 chars, max 30; ..." -> "Google ads ad headline (version A) is too long: 34 characters, the limit is 30." */
+export function friendlyViolation(raw: string): string {
+  const m = /^\[(.+?)\] (\w+): ([\s\S]*)$/.exec(raw);
+  if (!m) return raw;
+  const [, where, rule, detail] = m;
+  const [channel, kind, variant] = where.split("/");
+  const name = CHANNEL_NAME[channel] ?? label(channel);
+  const what = kind ? `${name} ${KIND_LABEL[kind] ?? label(kind)}${variant ? ` (version ${variant})` : ""}` : name;
+  return `${what} ${friendlyRule(rule, detail)}`;
+}
+
+/** The rule part alone, for messages shown on the asset itself. */
+export function friendlyRule(rule: string, detail: string): string {
+  if (rule === "too_long") {
+    const n = /(\d+) chars, max (\d+)/.exec(detail);
+    return n ? `is too long: ${n[1]} characters, the limit is ${n[2]}.` : "is too long.";
+  }
+  if (rule === "prohibited_phrase") return `uses a phrase your brand rules prohibit. ${detail}`;
+  if (rule === "unsupported_claim") return `makes a claim that is not on your approved list: ${detail}`;
+  if (rule === "missing_channel") return "has no content, but you asked for it.";
+  if (rule === "needs_variants") return "needs at least two versions to test.";
+  return `${detail}`;
+}
+
+/** An issue as stored on an asset ("too_long: 34 chars, max 30; ..."), reworded for the asset card. */
+export function friendlyIssue(issue: string): string {
+  const i = issue.indexOf(": ");
+  const rule = i > 0 ? issue.slice(0, i) : "";
+  const detail = i > 0 ? issue.slice(i + 2) : issue;
+  const text = friendlyRule(rule, detail);
+  const shorten = /shorten by at least (\d+)/.exec(detail);
+  return `This copy ${text}${shorten ? ` Cut at least ${shorten[1]}.` : ""}`;
+}

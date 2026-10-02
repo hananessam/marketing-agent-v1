@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
-import { label } from "@/lib/format";
+import { friendlyViolation, label } from "@/lib/format";
 import type { GenerateResult } from "@/lib/types";
 import { Button, Card, ErrorBox, PageHeader, inputClass } from "@/components/ui";
 
@@ -79,8 +79,8 @@ export default function NewCampaignPage() {
 
         {generate.error && <ErrorBox error={generate.error.message} />}
         {failure && (
-          <ErrorBox error="The draft could not be produced within brand policy, so nothing was saved."
-            details={[...(failure.planErrors ?? []), ...(failure.contentErrors ?? []), ...(failure.error ? [failure.error] : [])]} />
+          <ErrorBox error="We couldn't produce a draft that follows your brand rules, so nothing was saved. Try again, or loosen the brief."
+            details={[...(failure.planErrors ?? []), ...(failure.contentErrors ?? [])].map(friendlyViolation).concat(failure.error ? [failure.error] : [])} />
         )}
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={generate.isPending || form.channels.length === 0}>{generate.isPending ? "Drafting… (this can take a minute)" : "Generate draft"}</Button>

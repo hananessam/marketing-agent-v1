@@ -1,7 +1,7 @@
 export type Metric = "impressions" | "clicks" | "spend" | "conversions" | "revenue" | "ctr" | "conversionRate" | "cpc" | "cpa" | "roas";
 
 export type Campaign = { id: string; name: string; channel: string; status: "draft" | "approved" | "active" | "paused"; source: "manual" | "seed" | "meta_ads" | "ga4"; createdAt: string };
-export type Asset = { id: string; kind: string; variant: string; content: string; status: "draft" | "approved" | "rejected" };
+export type Asset = { id: string; kind: string; variant: string; content: string; status: "draft" | "approved" | "rejected"; issues: string[]; maxLength: number | null };
 export type CampaignDetail = Campaign & {
   brief: null | { objective: string; product: string; audience: string; channels: string[]; durationDays: number; budget?: number; constraints: string[] };
   plan: null | {
@@ -14,7 +14,7 @@ export type CampaignDetail = Campaign & {
 
 export type Approval = { id: string; action: string; summary: string; status: "pending" | "approved" | "rejected"; payload: { campaignId: string }; decidedBy: string | null; createdAt: string };
 
-export type GenerateResult = { runId: string; status: string; reused: boolean; output: { campaignId?: string; planErrors?: string[]; contentErrors?: string[]; error?: string } };
+export type GenerateResult = { runId: string; status: string; reused: boolean; output: { campaignId?: string; needsFixes?: string[]; planErrors?: string[]; contentErrors?: string[]; error?: string } };
 
 export type Recommendation = {
   title: string; actionType: string; campaignId: string; action: string; rationale: string; measurableOutcome: string;

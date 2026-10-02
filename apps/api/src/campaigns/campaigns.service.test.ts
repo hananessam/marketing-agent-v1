@@ -104,6 +104,52 @@ describe("campaign generation", () => {
   });
 });
 
+describe("fit problems (too long) are fixable, not fatal", () => {
+  const LONG = "A subject line that is far too long for an email subject because it just keeps going and going";
+  const longDraft = (): ContentDraft => ({ assets: [asset("A", LONG), asset("B", `${LONG} again`)] });
+
+  it("retries up to three times with the exact text and overage, then saves the draft with the problems flagged", async () => {
+    const { svc, calls } = make({ content: async (i) => { calls.content++; calls.feedback.push(i.feedback); return longDraft(); } });
+    const res = await svc.generate("w", brief);
+    expect(res.status).toBe("awaiting_approval");
+    expect(calls.content).toBe(3);
+    expect(calls.feedback[1]?.join(" ")).toMatch(/shorten by at least \d+/);
+    expect(calls.feedback[1]?.join(" ")).toContain(LONG.slice(0, 40));
+    const out = res.output as { campaignId: string; needsFixes: string[] };
+    expect(out.needsFixes).toHaveLength(2);
+    const c = svc.get("w", out.campaignId);
+    expect(c.assets).toHaveLength(2);
+    expect(c.assets.every((a) => a.issues.some((x) => x.startsWith("too_long")))).toBe(true);
+  });
+
+  it("will not approve flawed copy, but approves it once a person has shortened it", async () => {
+    const { svc } = make({ content: async () => longDraft() });
+    const out = (await svc.generate("w", brief)).output as { campaignId: string; approvalId: string };
+    const [a, b] = svc.get("w", out.campaignId).assets;
+    expect(() => svc.reviewAsset("w", out.campaignId, a.id, "approved")).toThrow(/needs a fix/);
+    expect(() => svc.editAsset("w", out.campaignId, a.id, LONG)).toThrow(/violates brand policy/); // still too long
+    svc.editAsset("w", out.campaignId, a.id, "Plan your week");
+    svc.reviewAsset("w", out.campaignId, a.id, "approved");
+    svc.reviewAsset("w", out.campaignId, b.id, "rejected"); // the other one is simply declined
+    expect(svc.get("w", out.campaignId).assets.find((x) => x.id === a.id)).toMatchObject({ status: "approved", issues: [] });
+    expect(svc.decide("w", out.approvalId, "approved", "h").status).toBe("approved");
+  });
+
+  it("still rejects the whole draft when a hard rule is broken alongside a fit problem", async () => {
+    const { svc } = make({ content: async () => ({ assets: [asset("A", LONG), asset("B", "Guaranteed results")] }) });
+    const res = await svc.generate("w", brief);
+    expect(res.status).toBe("failed");
+    expect(svc.list("w")).toHaveLength(0);
+  });
+
+  it("clean drafts report no problems", async () => {
+    const { svc } = make({});
+    const out = (await svc.generate("w", brief)).output as { campaignId: string; needsFixes?: string[] };
+    expect(out.needsFixes).toBeUndefined();
+    expect(svc.get("w", out.campaignId).assets.every((a) => a.issues.length === 0)).toBe(true);
+  });
+});
+
 describe("review and approval", () => {
   async function draft() {
     const { svc } = make({});

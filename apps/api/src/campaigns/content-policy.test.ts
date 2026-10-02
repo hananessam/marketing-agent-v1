@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkAsset, checkDraft, checkText, type BrandRules } from "./content-policy";
+import { checkAsset, checkDraft, checkText, isSoftViolation, type BrandRules } from "./content-policy";
 import type { ContentAsset } from "./content.schema";
 
 const brand: BrandRules = {
@@ -42,6 +42,15 @@ describe("content policy", () => {
     expect(rules(checkAsset(asset({ channel: "google_ads", kind: "email_body" }), brand))).toContain("invalid_kind");
     expect(rules(checkAsset(asset({ claimsUsed: ["Made-up claim"] }), brand))).toContain("unapproved_claim_cited");
     expect(checkAsset(asset({ claimsUsed: ["free 30-day trial"] }), brand)).toEqual([]);
+  });
+
+  it("explains a length problem precisely, and treats only length as fixable by hand", () => {
+    const v = checkAsset(asset({ channel: "google_ads", kind: "ad_headline", content: "Plan faster with Acme Planner!" + "x".repeat(4) }), brand);
+    expect(v[0].detail).toMatch(/^34 chars, max 30; shorten by at least 4: "Plan faster/);
+    expect(v.every(isSoftViolation)).toBe(true);
+    expect(isSoftViolation({ where: "x", rule: "prohibited_phrase", detail: "" })).toBe(false);
+    expect(isSoftViolation({ where: "x", rule: "unsupported_claim", detail: "" })).toBe(false);
+    expect(isSoftViolation({ where: "x", rule: "missing_tracking", detail: "" })).toBe(false);
   });
 
   it("requires every requested channel and at least two variants", () => {

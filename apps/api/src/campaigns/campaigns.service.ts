@@ -7,7 +7,7 @@ import { schema, type Db } from "../db";
 import { DB } from "../db/database.module";
 import { RunsService } from "../runs/runs.service";
 import { ToolRunnerService } from "../tools/tool-runner.service";
-import { checkAsset, formatViolations, type BrandRules } from "./content-policy";
+import { checkAsset, formatViolations, isSoftViolation, maxLength, type BrandRules } from "./content-policy";
 import type { ContentAsset } from "./content.schema";
 import { brandRules, buildCampaignGraph } from "./graph";
 import { CAMPAIGN_WRITER, type BrandContext, type CampaignWriter } from "./writer";
@@ -56,9 +56,11 @@ export class CampaignsService {
       });
       const s = await graph.invoke({});
 
-      if (s.plan && s.content && !s.planErrors.length && !s.contentErrors.length) {
+      // Only fit problems (such as a headline a few characters too long) are left: keep the draft and let a person fix them.
+      const onlyFitProblems = s.contentViolations.every(isSoftViolation);
+      if (s.plan && s.content && !s.planErrors.length && onlyFitProblems) {
         const saved = this.save(workspaceId, runId, brief, s.plan, s.content.assets);
-        const output = { campaignId: saved.campaignId, approvalId: saved.approvalId };
+        const output = { campaignId: saved.campaignId, approvalId: saved.approvalId, ...(s.contentViolations.length ? { needsFixes: s.contentErrors } : {}) };
         this.runs.finish(workspaceId, runId, "awaiting_approval", output);
         return { runId, status: "awaiting_approval" as const, reused: false, output };
       }
@@ -121,7 +123,13 @@ export class CampaignsService {
       .where(and(eq(schema.campaignAssets.workspaceId, workspaceId), eq(schema.campaignAssets.campaignId, campaignId))).all();
     const experiments = this.db.select().from(schema.experiments)
       .where(and(eq(schema.experiments.workspaceId, workspaceId), eq(schema.experiments.campaignId, campaignId))).all();
-    return { ...campaign, assets, experiments };
+    // Problems are recomputed on every read, so they always reflect the current copy and brand rules.
+    const brand = this.loadBrand(workspaceId);
+    const withIssues = assets.map((a) => {
+      const ca = this.toContentAsset(a, a.content);
+      return { ...a, maxLength: maxLength(ca.channel, ca.kind) ?? null, issues: checkAsset(ca, brand).map((v) => `${v.rule}: ${v.detail}`) };
+    });
+    return { ...campaign, assets: withIssues, experiments };
   }
 
   /**
@@ -170,6 +178,10 @@ export class CampaignsService {
   reviewAsset(workspaceId: string, campaignId: string, assetId: string, decision: "approved" | "rejected") {
     const { asset, campaign } = this.assetOrThrow(workspaceId, campaignId, assetId);
     if (campaign.status !== "draft") throw new ConflictException("Campaign is no longer a draft");
+    if (decision === "approved") {
+      const violations = checkAsset(this.toContentAsset(asset, asset.content), this.loadBrand(workspaceId));
+      if (violations.length) throw new UnprocessableEntityException({ message: "This copy needs a fix before it can be approved", violations });
+    }
     this.db.update(schema.campaignAssets).set({ status: decision }).where(eq(schema.campaignAssets.id, assetId)).run();
     return { ...asset, status: decision };
   }

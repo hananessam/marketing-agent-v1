@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { api, errorDetails } from "@/lib/api";
-import { label } from "@/lib/format";
+import { friendlyIssue, label } from "@/lib/format";
 import type { Approval, Asset, CampaignDetail } from "@/lib/types";
 import { CampaignPerformanceView } from "@/components/campaign-performance";
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass, statusTone } from "@/components/ui";
@@ -32,11 +32,18 @@ export default function CampaignPage() {
     groups.set(channel, byKind);
   }
   const undecided = c.assets.filter((a) => a.status === "draft").length;
+  const flawed = c.assets.filter((a) => a.issues.length > 0 && a.status !== "rejected").length;
 
   return (
     <div className="space-y-4">
       <PageHeader title={c.name} subtitle={c.brief ? `Objective: ${c.brief.objective} · ${c.brief.durationDays} days · audience: ${c.brief.audience}` : undefined}
         actions={<Badge tone={statusTone(c.status)}>{c.status}</Badge>} />
+
+      {flawed > 0 && editable && (
+        <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+          {flawed} {flawed === 1 ? "piece of copy needs" : "pieces of copy need"} a quick fix before {flawed === 1 ? "it" : "they"} can be approved, usually a headline that is a few characters too long. Click Edit on the highlighted ones, or reject them.
+        </p>
+      )}
 
       {approval && approval.status === "pending" && (
         <Card>
@@ -123,11 +130,18 @@ function AssetCard({ campaignId, asset, editable }: { campaignId: string; asset:
       ) : (
         <>
           <p className="whitespace-pre-wrap text-sm">{asset.content}</p>
-          <p className="mt-1 text-xs text-zinc-500">{asset.content.length} chars</p>
+          <p className={`mt-1 text-xs ${asset.maxLength && asset.content.length > asset.maxLength ? "font-medium text-red-600 dark:text-red-400" : "text-zinc-500"}`}>
+            {asset.content.length}{asset.maxLength ? ` / ${asset.maxLength}` : ""} characters
+          </p>
+          {asset.issues.length > 0 && (
+            <ul className="mt-2 space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              {asset.issues.map((i, n) => <li key={n}>{friendlyIssue(i)}</li>)}
+            </ul>
+          )}
           {review.error && <div className="mt-2"><ErrorBox error={review.error.message} /></div>}
           {editable && (
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" disabled={review.isPending || asset.status === "approved"} onClick={() => review.mutate("approved")}>Approve</Button>
+              <Button variant="secondary" disabled={review.isPending || asset.status === "approved" || asset.issues.length > 0} title={asset.issues.length ? "Fix the problem above first" : undefined} onClick={() => review.mutate("approved")}>Approve</Button>
               <Button variant="danger" disabled={review.isPending || asset.status === "rejected"} onClick={() => review.mutate("rejected")}>Reject</Button>
               <Button variant="secondary" onClick={() => setEditing(true)}>Edit</Button>
             </div>
