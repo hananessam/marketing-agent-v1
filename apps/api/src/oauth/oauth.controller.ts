@@ -7,7 +7,7 @@ import { SyncScheduleService } from "../connectors/sync-schedule.service";
 import { SyncService } from "../connectors/sync.service";
 import { OAuthService } from "./oauth.service";
 
-const StartBody = z.object({ connectionId: z.string().optional() });
+const StartBody = z.object({ connectionId: z.string().optional(), posting: z.boolean().optional() });
 const SelectBody = z.object({ accountId: z.string().min(1), conversionAction: z.enum(["purchase", "lead"]).optional() });
 
 @Controller("connections/oauth")
@@ -24,7 +24,7 @@ export class OAuthController {
   @Post(":provider/start")
   @UseGuards(WorkspaceGuard)
   start(@WorkspaceId() ws: string, @Param("provider") provider: string, @Body(new ZodValidationPipe(StartBody)) body: z.infer<typeof StartBody>) {
-    return this.oauth.start(ws, provider, body.connectionId);
+    return this.oauth.start(ws, provider, body.connectionId, body.posting === true);
   }
 
   /** The provider redirects the user's browser here, so there is no workspace header: the signed-in workspace is recovered from the single-use state. */

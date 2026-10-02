@@ -66,18 +66,31 @@ describe("MetaOAuth", () => {
     expect(u.hostname).toBe("www.facebook.com");
     expect(Object.fromEntries(u.searchParams)).toMatchObject({ client_id: "123", scope: "ads_read", state: "S", redirect_uri: "http://localhost:4000/connections/oauth/meta/callback" });
     expect(u.search).not.toContain("msecret");
+    // posting is a separate, explicit request for more permissions
+    const posting = new URL(new MetaOAuth(cfg).authUrl({ state: "S", posting: true }));
+    expect(posting.searchParams.get("scope")).toBe("ads_read,ads_management,pages_show_list,pages_read_engagement");
   });
 
   it("swaps the code for a short-lived token, then for a long-lived one, recording its expiry", async () => {
     const f = vi.fn()
       .mockResolvedValueOnce(res(200, { access_token: "SHORT", expires_in: 3600 }))
-      .mockResolvedValueOnce(res(200, { access_token: "LONG", expires_in: 5_184_000 }));
+      .mockResolvedValueOnce(res(200, { access_token: "LONG", expires_in: 5_184_000 }))
+      .mockResolvedValueOnce(res(200, { data: [{ permission: "ads_read", status: "granted" }, { permission: "ads_management", status: "declined" }, { permission: "pages_show_list", status: "granted" }] }));
     const g = await new MetaOAuth(cfg, { fetchFn: f as never, sleep: noSleep }).exchangeCode({ code: "CODE" });
     expect(g.secret).toEqual({ accessToken: "LONG" });
+    expect(g.config.permissions).toBe("ads_read,pages_show_list"); // declined permissions are not recorded
+    expect((f.mock.calls[2][1] as RequestInit).headers).toEqual({ authorization: "Bearer LONG" });
     expect(Date.parse(g.config.expiresAt)).toBeGreaterThan(Date.now() + 59 * 86_400_000);
     expect(f.mock.calls[0][0]).toContain("code=CODE");
     expect(f.mock.calls[1][0]).toContain("grant_type=fb_exchange_token");
     expect(f.mock.calls[1][0]).toContain("fb_exchange_token=SHORT");
+  });
+
+  it("still connects when the permission lookup fails; it just will not offer posting", async () => {
+    const f = vi.fn().mockResolvedValueOnce(res(200, { access_token: "SHORT" })).mockResolvedValueOnce(res(200, { access_token: "LONG", expires_in: 100 })).mockResolvedValueOnce(res(500, {}));
+    const g = await new MetaOAuth(cfg, { fetchFn: f as never, sleep: noSleep }).exchangeCode({ code: "CODE" });
+    expect(g.secret.accessToken).toBe("LONG");
+    expect(g.config.permissions).toBeUndefined();
   });
 
   it("lists ad accounts by cursor and drops malformed ids", async () => {

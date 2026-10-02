@@ -133,7 +133,7 @@ export class CampaignsService {
     });
     const latest = this.approvalsFor(workspaceId, campaignId)[0];
     const approval = latest ? { id: latest.id, status: latest.status, decidedBy: latest.decidedBy, decidedAt: latest.decidedAt, note: (latest.payload as { note?: string }).note ?? null, createdAt: latest.createdAt } : null;
-    return { ...campaign, assets: withIssues, experiments, approval };
+    return { ...campaign, assets: withIssues, experiments, approval, publish: this.actions.latestPublish(workspaceId, campaignId) };
   }
 
   /**

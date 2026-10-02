@@ -3,6 +3,9 @@ import { ConnectorAuthError, ConnectorError, requestJson } from "../connectors/h
 import { META_API_VERSION } from "../connectors/meta";
 import type { Provider } from "../connectors/types";
 
+/** Reading numbers needs only ads_read. Creating ads also needs these, requested separately ("Allow posting"). */
+export const META_POSTING_SCOPES = "ads_read,ads_management,pages_show_list,pages_read_engagement";
+
 export type Account = { id: string; name: string };
 export type Grant = { secret: Record<string, string>; config: Record<string, string> };
 
@@ -11,7 +14,8 @@ export interface OAuthProvider {
   readonly provider: Provider;
   readonly usesPkce: boolean;
   configured(): boolean;
-  authUrl(p: { state: string; codeChallenge?: string }): string;
+  /** `posting` asks for the extra permissions needed to create ads, not just read them. */
+  authUrl(p: { state: string; codeChallenge?: string; posting?: boolean }): string;
   exchangeCode(p: { code: string; codeVerifier?: string }): Promise<Grant>;
   listAccounts(secret: Record<string, string>): Promise<Account[]>;
 }
@@ -87,10 +91,10 @@ export class MetaOAuth implements OAuthProvider {
 
   configured() { return Boolean(this.cfg.appId && this.cfg.appSecret); }
 
-  authUrl({ state }: { state: string }) {
+  authUrl({ state, posting }: { state: string; posting?: boolean }) {
     const p = new URLSearchParams({
       client_id: this.cfg.appId!, redirect_uri: redirectUri(this.cfg.apiPublicUrl, this.slug), state,
-      response_type: "code", scope: "ads_read",
+      response_type: "code", scope: posting ? META_POSTING_SCOPES : "ads_read",
     });
     return `https://www.facebook.com/${META_API_VERSION}/dialog/oauth?${p}`;
   }
@@ -108,7 +112,13 @@ export class MetaOAuth implements OAuthProvider {
     // Upgrade the 1–2 hour token to the ~60 day one.
     const long = await this.tokenCall({ grant_type: "fb_exchange_token", fb_exchange_token: short.access_token });
     const expiresAt = long.expires_in ? new Date(Date.now() + long.expires_in * 1000).toISOString() : "";
-    return { secret: { accessToken: long.access_token }, config: expiresAt ? { expiresAt } : {} };
+    // Record what the user actually granted: they can untick permissions on Meta's screen.
+    const config: Record<string, string> = expiresAt ? { expiresAt } : {};
+    try {
+      const perms = await requestJson(`https://graph.facebook.com/${META_API_VERSION}/me/permissions`, { headers: { authorization: `Bearer ${long.access_token}` } }, { fetchFn: this.d.fetchFn, sleep: this.d.sleep });
+      if (perms.ok) config.permissions = (perms.json?.data ?? []).filter((x: { status?: string }) => x.status === "granted").map((x: { permission: string }) => x.permission).join(",");
+    } catch { /* not fatal: the connection simply will not offer posting */ }
+    return { secret: { accessToken: long.access_token }, config };
   }
 
   async listAccounts(secret: Record<string, string>): Promise<Account[]> {

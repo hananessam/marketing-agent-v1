@@ -1,14 +1,13 @@
 import { decide, MAX_BUDGET_CHANGE_PERCENT } from "@marketing/shared";
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, Optional, UnprocessableEntityException } from "@nestjs/common";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { schema, type Db } from "../db";
 import { DB } from "../db/database.module";
+import { PUBLISHER, type ActionRow, type Outcome, type Publisher } from "../publishing/types";
 import { IS_EXTERNAL, PAYLOADS, POLICY_FOR, type ActionKind, type ProposeBody } from "./action-types";
 
-type ActionRow = typeof schema.actions.$inferSelect;
 type Preview = ActionRow["preview"];
-type Outcome = { status: "executed" | "shadowed"; result: Record<string, unknown> };
 
 const PLATFORM: Record<string, string> = { meta_ads: "Meta Ads", ga4: "Google Analytics", seed: "sample data", manual: "this app only" };
 const canonical = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x));
@@ -22,7 +21,7 @@ const LIVE_EXECUTORS: Partial<Record<ActionKind, (action: ActionRow) => Promise<
 @Injectable()
 export class ActionsService {
   private readonly log = new Logger(ActionsService.name);
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(@Inject(DB) private readonly db: Db, @Optional() @Inject(PUBLISHER) private readonly publisher?: Publisher) {}
 
   /** Shadow unless explicitly switched to live; even then only action types with a live executor are performed. */
   get mode(): "shadow" | "live" {
@@ -124,6 +123,8 @@ export class ActionsService {
       this.db.insert(schema.tasks).values({ id: taskId, workspaceId: action.workspaceId, title: p.title, description: p.description, campaignId: p.campaignId ?? null, actionId: action.id }).run();
       return { status: "executed", result: { taskId } };
     }
+    // Publishing a campaign really posts (paused ads on Meta) only when live mode is on and a publisher is wired in.
+    if (action.type === "publish_campaign" && this.mode === "live" && this.publisher) return this.publisher.publish(action);
     const live = LIVE_EXECUTORS[action.type];
     if (this.mode === "live" && live) return live(action);
     return {
@@ -185,15 +186,27 @@ export class ActionsService {
           const [channel, variant] = a.variant.split(":");
           byChannel.set(channel, [...(byChannel.get(channel) ?? []), { kind: a.kind, variant, content: a.content }]);
         }
+        // Budget cap, landing page and permission checks live with the publisher (and run again when the action executes).
+        this.publisher?.preflight(workspaceId, c.id, p.meta);
+        const posting = p.meta && byChannel.has("meta_ads") && this.mode === "live" && this.publisher
+          ? ` · Meta: ${p.meta.dailyBudget} per day in ${p.meta.country}, created PAUSED` : "";
         return {
-          summary: `Publish "${c.name}": ${assets.length} pieces of approved copy on ${[...byChannel.keys()].join(", ")}`,
-          details: { campaign: c.name, channels: [...byChannel].map(([channel, items]) => ({ channel, items })) },
+          summary: `Publish "${c.name}": ${assets.length} pieces of approved copy on ${[...byChannel.keys()].join(", ")}${posting}`,
+          details: { campaign: c.name, channels: [...byChannel].map(([channel, items]) => ({ channel, items })), ...(p.meta ? { meta: p.meta } : {}) },
         };
       }
     }
   }
 
   // ------------------------------------------------------------------ reading
+
+  /** The newest publish request for a campaign, for the campaign page. */
+  latestPublish(workspaceId: string, campaignId: string) {
+    const a = this.db.select().from(schema.actions)
+      .where(and(eq(schema.actions.workspaceId, workspaceId), eq(schema.actions.type, "publish_campaign"))).orderBy(desc(schema.actions.createdAt), desc(sql`rowid`)).all()
+      .find((x) => (x.payload as { campaignId?: string }).campaignId === campaignId);
+    return a ? { id: a.id, status: a.status, result: a.result, createdAt: a.createdAt, executedAt: a.executedAt } : null;
+  }
 
   list(workspaceId: string, status?: string, limit = 100) {
     const where = status && (["awaiting_approval", "executing", "executed", "shadowed", "rejected", "failed"] as string[]).includes(status)

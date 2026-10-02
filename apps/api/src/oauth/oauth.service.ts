@@ -28,7 +28,7 @@ export class OAuthService {
   }
 
   /** Creates a single-use, expiring state (and PKCE verifier) and returns the consent URL. */
-  start(workspaceId: string, slug: string, connectionId?: string) {
+  start(workspaceId: string, slug: string, connectionId?: string, posting = false) {
     const p = this.provider(slug);
     if (!p.configured()) throw new ServiceUnavailableException(`${slug} OAuth is not configured on the server`);
     if (connectionId) {
@@ -45,7 +45,7 @@ export class OAuthService {
       expiresAt: new Date(now + STATE_TTL_MS).toISOString(),
     }).run();
     const codeChallenge = verifier ? b64url(createHash("sha256").update(verifier).digest()) : undefined;
-    return { authUrl: p.authUrl({ state, codeChallenge }) };
+    return { authUrl: p.authUrl({ state, codeChallenge, posting }) };
   }
 
   /** Public endpoint (a browser redirect): the workspace comes only from the state we issued. */

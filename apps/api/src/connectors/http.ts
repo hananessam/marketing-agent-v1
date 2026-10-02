@@ -11,6 +11,11 @@ type Opts = {
   timeoutMs?: number;
   /** Extra retry condition on a non-2xx response (e.g. Meta rate-limit codes sent with HTTP 400). */
   retryIf?: (r: HttpResult) => boolean;
+  /**
+   * False for requests that create things. A timeout or a 5xx may have happened *after* the object was created, so
+   * retrying could duplicate it; only `retryIf` (explicit "rejected before doing anything" cases) may retry.
+   */
+  idempotent?: boolean;
   sleep?: (ms: number) => Promise<void>;
 };
 
@@ -21,7 +26,7 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * Never includes request headers or URLs in thrown errors, so tokens cannot leak into logs.
  */
 export async function requestJson(url: string, init: RequestInit, o: Opts = {}): Promise<HttpResult> {
-  const { fetchFn = fetch, retries = 3, baseDelayMs = 500, timeoutMs = 30_000, retryIf, sleep = defaultSleep } = o;
+  const { fetchFn = fetch, retries = 3, baseDelayMs = 500, timeoutMs = 30_000, retryIf, sleep = defaultSleep, idempotent = true } = o;
   let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -30,13 +35,13 @@ export async function requestJson(url: string, init: RequestInit, o: Opts = {}):
       let json: any = null;
       try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
       const result: HttpResult = { status: res.status, ok: res.ok, json };
-      const retryable = !res.ok && (res.status === 429 || res.status >= 500 || retryIf?.(result));
+      const retryable = !res.ok && ((idempotent && (res.status === 429 || res.status >= 500)) || retryIf?.(result));
       if (!retryable || attempt === retries) return result;
       const retryAfter = Number(res.headers?.get?.("retry-after"));
       await sleep(retryAfter > 0 ? retryAfter * 1000 : baseDelayMs * 2 ** attempt);
     } catch (e) {
       lastErr = e;
-      if (attempt === retries) break;
+      if (!idempotent || attempt === retries) break; // an ambiguous failure of a write must not be repeated
       await sleep(baseDelayMs * 2 ** attempt);
     }
   }
