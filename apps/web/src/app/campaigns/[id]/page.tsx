@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { api, errorDetails } from "@/lib/api";
+import { ApiError, api, errorDetails } from "@/lib/api";
 import { friendlyIssue, label } from "@/lib/format";
 import type { Approval, Asset, CampaignDetail } from "@/lib/types";
 import { CampaignPerformanceView } from "@/components/campaign-performance";
@@ -16,6 +16,17 @@ export default function CampaignPage() {
   const approvals = useQuery({ queryKey: ["approvals", "all"], queryFn: () => api<Approval[]>("/approvals") });
 
   if (q.isLoading) return <Empty>Loading…</Empty>;
+  if (q.error instanceof ApiError && q.error.status === 404) {
+    return (
+      <Card title="This campaign doesn't exist">
+        <p className="text-sm text-zinc-500">The link may be old, or the campaign was removed. Your other campaigns are all still there.</p>
+        <div className="mt-4 flex gap-2">
+          <Link href="/campaigns" className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">See all campaigns</Link>
+          <Link href="/campaigns/new" className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Create a new campaign</Link>
+        </div>
+      </Card>
+    );
+  }
   if (q.error) return <ErrorBox error={q.error.message} />;
   const c = q.data!;
   // Campaigns that were not drafted here (sample data, or synced from Meta / Google) have no brief, plan or copy.
