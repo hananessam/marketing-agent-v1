@@ -3,13 +3,15 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { schema, type Db } from "../db";
 import { DB } from "../db/database.module";
+import { withTracking } from "./meta-publisher";
 import type { ActionRow, MetaSettings, Outcome, Publisher } from "./types";
 
 const SANDBOX = { accountName: "Demo ad account (sandbox)", currency: "USD", minDailyBudget: 1, maxDailyBudget: 50, pages: [{ id: "1000000000001", name: "Demo Page" }, { id: "1000000000002", name: "Demo Brand Page" }] };
 const id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}`;
 const hostAllowed = (host: string, allowed: string[]) => allowed.some((d) => host === d.toLowerCase() || host.endsWith(`.${d.toLowerCase()}`));
 
-type Ad = { id: string; name: string; headline: string };
+/** One created ad, with the copy it shows. Fields beyond id/name/headline are what a preview needs. */
+type Ad = { id: string; name: string; headline: string; description: string; primaryText?: string; cta: string; link?: string };
 
 /**
  * A pretend ad platform for demos: it accepts what a real one would (same budget and landing page rules, ads created
@@ -61,15 +63,30 @@ export class SandboxPublisher implements Publisher {
     this.preflight(ws, campaignId, meta);
 
     const platforms: Record<string, unknown> = {};
-    const meta_ads = this.ads(campaign.name, assets, "meta_ads");
+    const meta_ads = this.ads(campaign.name, assets, "meta_ads", meta?.landingUrl);
     if (meta_ads.length && meta) {
+      const campaignId = id("sbx_cmp");
+      const adSetId = id("sbx_set");
+      const page = SANDBOX.pages.find((p) => p.id === meta.pageId);
+      const dailyBudgetMinor = Math.round(meta.dailyBudget * 100);
       platforms.meta_ads = {
-        outcome: "created_paused", sandbox: true, campaignId: id("sbx_cmp"), adSetId: id("sbx_set"), adIds: meta_ads.map((a) => a.id), ads: meta_ads,
-        adsManagerUrl: null, dailyBudgetMinor: Math.round(meta.dailyBudget * 100), currency: SANDBOX.currency, country: meta.country,
+        outcome: "created_paused", sandbox: true, campaignId, adSetId, adIds: meta_ads.map((a) => a.id), ads: meta_ads,
+        adsManagerUrl: null, dailyBudgetMinor, currency: SANDBOX.currency, country: meta.country,
+        // The same shape a real ad account has: campaign > ad set > ads, everything paused.
+        campaign: { id: campaignId, name: `${campaign.name} (Marketing Agent)`, objective: "Traffic", status: "PAUSED" },
+        adSet: { id: adSetId, name: `${campaign.name} · ${meta.country}`, dailyBudgetMinor, currency: SANDBOX.currency, country: meta.country, optimizedFor: "Link clicks", status: "PAUSED" },
+        page: page ?? { id: meta.pageId, name: meta.pageId },
+        landingUrl: meta.landingUrl,
       };
     }
     const google = this.ads(campaign.name, assets, "google_ads");
-    if (google.length) platforms.google_ads = { outcome: "created_paused", sandbox: true, campaignId: id("sbx_cmp"), adIds: google.map((a) => a.id), ads: google };
+    if (google.length) {
+      const campaignId = id("sbx_cmp");
+      platforms.google_ads = {
+        outcome: "created_paused", sandbox: true, campaignId, adIds: google.map((a) => a.id), ads: google,
+        campaign: { id: campaignId, name: `${campaign.name} (Marketing Agent)`, type: "Search", status: "PAUSED" },
+      };
+    }
 
     const posted = Object.keys(platforms).length > 0;
     return { status: posted ? "executed" : "shadowed", result: { mode: "demo", platforms } };
@@ -117,14 +134,19 @@ export class SandboxPublisher implements Publisher {
     return m?.avg && m.avg > 0 ? Math.round(m.avg * 100) / 100 : null;
   }
 
-  /** One ad per variant letter of the channel, named after its headline. */
-  private ads(campaignName: string, assets: { kind: string; variant: string; content: string }[], channel: string): Ad[] {
-    const headlines = new Map<string, string>();
+  /** One ad per version letter of the channel (a campaign has one version, older ones may have A and B), carrying that version's copy. */
+  private ads(campaignName: string, assets: { kind: string; variant: string; content: string }[], channel: string, landingUrl?: string): Ad[] {
+    const byLabel = new Map<string, Record<string, string>>();
     for (const a of assets) {
       const [ch, label] = a.variant.split(":");
-      if (ch === channel && a.kind === "ad_headline") headlines.set(label, a.content);
+      if (ch === channel) byLabel.set(label, { ...(byLabel.get(label) ?? {}), [a.kind]: a.content });
     }
-    return [...headlines].sort(([a], [b]) => a.localeCompare(b)).map(([label, headline]) => ({ id: id("sbx_ad"), name: `${campaignName} · Ad ${label}`, headline }));
+    return [...byLabel].filter(([, p]) => p.ad_headline).sort(([a], [b]) => a.localeCompare(b)).map(([label, p]) => ({
+      id: id("sbx_ad"), name: `${campaignName} · Ad ${label}`, headline: p.ad_headline, description: p.ad_description ?? "",
+      ...(channel === "meta_ads" ? { primaryText: p.social_post ?? p.ad_description ?? p.ad_headline } : {}),
+      cta: p.cta ?? (channel === "meta_ads" ? "Learn more" : ""),
+      ...(landingUrl ? { link: withTracking(landingUrl, { campaign: campaignName, content: label }) } : {}),
+    }));
   }
 
   private assets(workspaceId: string, campaignId: string) {

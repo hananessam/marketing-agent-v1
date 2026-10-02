@@ -5,15 +5,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import type { AgentAction, Company, MetaDetails, PublishInfo, PublishingStatus } from "@/lib/types";
+import { COUNTRIES } from "@/lib/countries";
+import { SandboxResult } from "@/components/sandbox-result";
 import { Card, inputClass } from "@/components/ui";
-
-const COUNTRIES: [string, string][] = [
-  ["US", "United States"], ["GB", "United Kingdom"], ["CA", "Canada"], ["AU", "Australia"], ["NZ", "New Zealand"], ["IE", "Ireland"],
-  ["DE", "Germany"], ["FR", "France"], ["ES", "Spain"], ["IT", "Italy"], ["NL", "Netherlands"], ["SE", "Sweden"], ["NO", "Norway"], ["DK", "Denmark"],
-  ["FI", "Finland"], ["CH", "Switzerland"], ["AT", "Austria"], ["BE", "Belgium"], ["PT", "Portugal"], ["PL", "Poland"],
-  ["BR", "Brazil"], ["MX", "Mexico"], ["AR", "Argentina"], ["CL", "Chile"], ["CO", "Colombia"],
-  ["IN", "India"], ["SG", "Singapore"], ["AE", "United Arab Emirates"], ["SA", "Saudi Arabia"], ["EG", "Egypt"], ["ZA", "South Africa"], ["NG", "Nigeria"], ["KE", "Kenya"], ["JP", "Japan"], ["KR", "South Korea"],
-];
 
 export type MetaPayload = { dailyBudget: number; country: string; pageId: string; landingUrl: string };
 
@@ -136,22 +130,7 @@ export function PostingResult({ publish }: { publish: PublishInfo | null }) {
   }
   const google = platforms.google_ads as unknown as Created | undefined;
   if (publish.result?.mode === "demo" && (meta?.outcome === "created_paused" || google?.outcome === "created_paused")) {
-    const sections = [["Meta", meta], ["Google Ads", google]] as const;
-    return (
-      <Card title="Created in the demo ad platform, paused">
-        <p className="text-sm">This is a built-in sandbox, so <strong>nothing real was posted and nothing can spend</strong>. It shows what approving would create on a real account.</p>
-        <div className="mt-3 space-y-3">
-          {sections.map(([name, p]) => p?.outcome === "created_paused" && (
-            <div key={name}>
-              <p className="text-xs font-medium">{name}: {p.ads?.length ?? p.adIds.length} {(p.ads?.length ?? p.adIds.length) === 1 ? "ad" : "ads"}{name === "Meta" ? `, ${p.dailyBudgetMinor / 100} ${p.currency} a day` : ""}</p>
-              <ul className="mt-1 space-y-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-                {(p.ads ?? []).map((a) => <li key={a.id}><span className="font-mono">{a.id}</span> · {a.headline}</li>)}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </Card>
-    );
+    return <SandboxResult platforms={platforms as never} createdAt={publish.executedAt ?? publish.createdAt} />;
   }
   if (meta?.outcome === "created_paused") {
     return (

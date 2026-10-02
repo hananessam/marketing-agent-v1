@@ -79,6 +79,30 @@ describe("demo mode (the default): approving posts to the ads sandbox", () => {
     expect(platforms.google_ads).toMatchObject({ outcome: "created_paused", sandbox: true });
   });
 
+  it("returns what an ad account would hold: campaign, ad set, page and each ad with its copy and tracked link", async () => {
+    db.insert(schema.campaignAssets).values([
+      { id: "d1", workspaceId: "w", campaignId: "ready", kind: "ad_description", variant: "meta_ads:A", content: "Free trial", status: "approved" },
+      { id: "d2", workspaceId: "w", campaignId: "ready", kind: "social_post", variant: "meta_ads:A", content: "Plan projects with Acme", status: "approved" },
+      { id: "d3", workspaceId: "w", campaignId: "ready", kind: "cta", variant: "meta_ads:A", content: "Start free trial", status: "approved" },
+      { id: "d4", workspaceId: "w", campaignId: "ready", kind: "ad_description", variant: "google_ads:A", content: "Simple planning", status: "approved" },
+    ]).run();
+    await propose({ campaignId: "ready", meta: META });
+    const r = ((await approveLatest()).action.result as any).platforms;
+    expect(r.meta_ads.campaign).toMatchObject({ name: "Launch Me (Marketing Agent)", objective: "Traffic", status: "PAUSED" });
+    expect(r.meta_ads.adSet).toMatchObject({ name: "Launch Me · US", dailyBudgetMinor: 1000, currency: "USD", country: "US", optimizedFor: "Link clicks", status: "PAUSED" });
+    expect(r.meta_ads.page).toEqual({ id: "1000000000001", name: "Demo Page" });
+    expect(r.meta_ads.campaignId).toBe(r.meta_ads.campaign.id);
+    const ad = r.meta_ads.ads.find((a: any) => a.headline === "Plan faster");
+    expect(ad).toMatchObject({ description: "Free trial", primaryText: "Plan projects with Acme", cta: "Start free trial" });
+    const link = new URL(ad.link);
+    expect(link.origin + link.pathname).toBe("https://acme.com/start");
+    expect(link.searchParams.get("utm_content")).toBe("a");
+    expect(link.searchParams.get("utm_source")).toBe("meta");
+    expect(r.google_ads.campaign).toMatchObject({ type: "Search", status: "PAUSED" });
+    expect(r.google_ads.ads[0]).toMatchObject({ headline: "Plan your week", description: "Simple planning" });
+    expect(r.google_ads.ads[0]).not.toHaveProperty("link"); // search ads have no landing page to set up here
+  });
+
   it("posts Google-only copy with no ad settings at all", async () => {
     await propose({ campaignId: "googleonly" });
     const out = await approveLatest();
