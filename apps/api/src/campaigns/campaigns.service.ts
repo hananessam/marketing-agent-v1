@@ -15,7 +15,7 @@ import { CAMPAIGN_WRITER, type BrandContext, type CampaignWriter } from "./write
 export const GenerateBody = z.object({ brief: CampaignBrief });
 export const EditAssetBody = z.object({ content: z.string().min(1) });
 export const ReviewBody = z.object({ decision: z.enum(["approved", "rejected"]) });
-export const DecisionBody = z.object({ decision: z.enum(["approved", "rejected"]), decidedBy: z.string().min(1) });
+export const DecisionBody = z.object({ decision: z.enum(["approved", "rejected"]), decidedBy: z.string().min(1), note: z.string().trim().max(500).optional() });
 
 const norm = (s: string) => s.trim().toLowerCase();
 const briefHash = (b: CampaignBrief) =>
@@ -129,7 +129,9 @@ export class CampaignsService {
       const ca = this.toContentAsset(a, a.content);
       return { ...a, maxLength: maxLength(ca.channel, ca.kind) ?? null, issues: checkAsset(ca, brand).map((v) => `${v.rule}: ${v.detail}`) };
     });
-    return { ...campaign, assets: withIssues, experiments };
+    const latest = this.approvalsFor(workspaceId, campaignId)[0];
+    const approval = latest ? { id: latest.id, status: latest.status, decidedBy: latest.decidedBy, decidedAt: latest.decidedAt, note: (latest.payload as { note?: string }).note ?? null, createdAt: latest.createdAt } : null;
+    return { ...campaign, assets: withIssues, experiments, approval };
   }
 
   /**
@@ -194,7 +196,7 @@ export class CampaignsService {
       .orderBy(desc(schema.approvals.createdAt)).all();
   }
 
-  decide(workspaceId: string, approvalId: string, decision: "approved" | "rejected", decidedBy: string) {
+  decide(workspaceId: string, approvalId: string, decision: "approved" | "rejected", decidedBy: string, note?: string) {
     const approval = this.db.select().from(schema.approvals)
       .where(and(eq(schema.approvals.workspaceId, workspaceId), eq(schema.approvals.id, approvalId))).get();
     if (!approval) throw new NotFoundException("Approval not found");
@@ -214,11 +216,41 @@ export class CampaignsService {
     }
 
     this.db.transaction((tx) => {
-      tx.update(schema.approvals).set({ status: decision, decidedBy, decidedAt: new Date().toISOString() }).where(eq(schema.approvals.id, approvalId)).run();
+      // The reason lives in the existing JSON payload, so no schema change is needed.
+      tx.update(schema.approvals).set({ status: decision, decidedBy, decidedAt: new Date().toISOString(), payload: { ...(approval.payload as object), ...(note ? { note } : {}) } })
+        .where(eq(schema.approvals.id, approvalId)).run();
       if (decision === "approved") tx.update(schema.campaigns).set({ status: "approved" }).where(eq(schema.campaigns.id, campaignId)).run();
       if (approval.runId) tx.update(schema.agentRuns).set({ status: "succeeded" }).where(eq(schema.agentRuns.id, approval.runId)).run();
     });
     return { approvalId, campaignId, status: decision, decidedBy };
+  }
+
+  /**
+   * After a rejection (or any time no request is open) ask again. The campaign stays editable while it is a draft, so the
+   * usual loop is: rejected -> edit the copy -> request approval again.
+   */
+  requestApproval(workspaceId: string, campaignId: string) {
+    const campaign = this.campaignOrThrow(workspaceId, campaignId);
+    if (campaign.status !== "draft") throw new ConflictException("Only drafts can be sent for approval");
+    const history = this.approvalsFor(workspaceId, campaignId);
+    if (history.some((a) => a.status === "pending")) throw new ConflictException("An approval request is already waiting");
+    const assets = this.db.select().from(schema.campaignAssets)
+      .where(and(eq(schema.campaignAssets.workspaceId, workspaceId), eq(schema.campaignAssets.campaignId, campaignId))).all();
+    if (!assets.length) throw new ConflictException("There is no copy to approve");
+
+    const id = randomUUID();
+    this.db.insert(schema.approvals).values({
+      id, workspaceId, runId: history[0]?.runId ?? null, action: "publish", status: "pending",
+      summary: `Approve campaign "${campaign.name}" (${assets.length} assets, sent again). Approval does not publish anything.`,
+      payload: { campaignId, resubmittedFrom: history[0]?.id ?? null },
+    }).run();
+    return { approvalId: id, campaignId };
+  }
+
+  /** Newest first. */
+  private approvalsFor(workspaceId: string, campaignId: string) {
+    return this.db.select().from(schema.approvals).where(eq(schema.approvals.workspaceId, workspaceId)).orderBy(desc(schema.approvals.createdAt)).all()
+      .filter((a) => (a.payload as { campaignId?: string } | null)?.campaignId === campaignId);
   }
 
   // ---------- helpers ----------

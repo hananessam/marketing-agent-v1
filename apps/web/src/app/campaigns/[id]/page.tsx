@@ -6,14 +6,13 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { ApiError, api, errorDetails } from "@/lib/api";
 import { friendlyIssue, label } from "@/lib/format";
-import type { Approval, Asset, CampaignDetail } from "@/lib/types";
+import type { Asset, CampaignDetail } from "@/lib/types";
 import { CampaignPerformanceView } from "@/components/campaign-performance";
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass, statusTone } from "@/components/ui";
 
 export default function CampaignPage() {
   const { id } = useParams<{ id: string }>();
   const q = useQuery({ queryKey: ["campaign", id], queryFn: () => api<CampaignDetail>(`/campaigns/${id}`) });
-  const approvals = useQuery({ queryKey: ["approvals", "all"], queryFn: () => api<Approval[]>("/approvals") });
 
   if (q.isLoading) return <Empty>Loading…</Empty>;
   if (q.error instanceof ApiError && q.error.status === 404) {
@@ -31,7 +30,7 @@ export default function CampaignPage() {
   const c = q.data!;
   // Campaigns that were not drafted here (sample data, or synced from Meta / Google) have no brief, plan or copy.
   if (!c.brief && !c.plan && c.assets.length === 0) return <CampaignPerformanceView id={id} />;
-  const approval = approvals.data?.find((a) => a.payload.campaignId === id);
+  const approval = c.approval;
   const editable = c.status === "draft";
 
   // group: channel -> kind -> assets
@@ -64,7 +63,8 @@ export default function CampaignPage() {
           </p>
         </Card>
       )}
-      {approval && approval.status !== "pending" && <p className="text-sm text-zinc-500">Approval {approval.status}{approval.decidedBy ? ` by ${approval.decidedBy}` : ""}. Assets are now locked.</p>}
+      {approval?.status === "approved" && <p className="text-sm text-zinc-500">Approved{approval.decidedBy ? ` by ${approval.decidedBy}` : ""}. The copy is now locked.</p>}
+      {approval?.status === "rejected" && <RejectedBanner campaignId={id} approval={approval} />}
 
       {c.plan && (
       <Card title="Plan">
@@ -103,6 +103,26 @@ export default function CampaignPage() {
           </div>
         </Card>
       ))}
+    </div>
+  );
+}
+
+function RejectedBanner({ campaignId, approval }: { campaignId: string; approval: NonNullable<CampaignDetail["approval"]> }) {
+  const qc = useQueryClient();
+  const again = useMutation({
+    mutationFn: () => api(`/campaigns/${campaignId}/request-approval`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaign", campaignId] });
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+    },
+  });
+  return (
+    <div role="status" className="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/40">
+      <p className="text-sm font-medium">This campaign was rejected{approval.decidedBy ? ` by ${approval.decidedBy}` : ""}.</p>
+      {approval.note && <p className="mt-1 text-sm">Reason: {approval.note}</p>}
+      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">It is still a draft. Edit or reject the copy below, review each piece again, then send it for approval again.</p>
+      {again.error && <div className="mt-2"><ErrorBox error={again.error.message} /></div>}
+      <div className="mt-3"><Button onClick={() => again.mutate()} disabled={again.isPending}>{again.isPending ? "Sending…" : "Request approval again"}</Button></div>
     </div>
   );
 }

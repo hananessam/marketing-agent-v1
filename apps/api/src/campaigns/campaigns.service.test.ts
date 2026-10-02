@@ -206,6 +206,70 @@ describe("review and approval", () => {
   });
 });
 
+describe("rejection is not a dead end", () => {
+  async function drafted() {
+    const { svc } = make({});
+    const out = (await svc.generate("w", brief)).output as { campaignId: string; approvalId: string };
+    return { svc, ...out, assets: svc.get("w", out.campaignId).assets };
+  }
+
+  it("records who rejected it and why, keeps the campaign an editable draft, and reports the latest approval state", async () => {
+    const { svc, campaignId, approvalId, assets } = await drafted();
+    expect(svc.get("w", campaignId).approval).toMatchObject({ id: approvalId, status: "pending", note: null });
+
+    svc.decide("w", approvalId, "rejected", "hanan", "Tone is too salesy");
+    const c = svc.get("w", campaignId);
+    expect(c.status).toBe("draft");
+    expect(c.approval).toMatchObject({ id: approvalId, status: "rejected", decidedBy: "hanan", note: "Tone is too salesy" });
+    // still editable and reviewable afterwards
+    expect(svc.editAsset("w", campaignId, assets[0].id, "A friendlier subject").status).toBe("draft");
+    expect(svc.reviewAsset("w", campaignId, assets[0].id, "approved").status).toBe("approved");
+  });
+
+  it("lets you ask again after a rejection, and the new request can be approved", async () => {
+    const { svc, campaignId, approvalId, assets } = await drafted();
+    svc.decide("w", approvalId, "rejected", "hanan", "Needs a rewrite");
+    svc.editAsset("w", campaignId, assets[0].id, "A friendlier subject");
+    for (const a of assets) svc.reviewAsset("w", campaignId, a.id, "approved");
+
+    const again = svc.requestApproval("w", campaignId);
+    expect(again.approvalId).not.toBe(approvalId);
+    expect(svc.get("w", campaignId).approval).toMatchObject({ id: again.approvalId, status: "pending", note: null });
+    expect(svc.listApprovals("w", "pending").map((a) => a.id)).toEqual([again.approvalId]);
+    expect(svc.listApprovals("w", "rejected")).toHaveLength(1); // the history keeps the rejection
+
+    expect(svc.decide("w", again.approvalId, "approved", "hanan").status).toBe("approved");
+    expect(svc.get("w", campaignId).status).toBe("approved");
+  });
+
+  it("can be rejected and re-requested more than once", async () => {
+    const { svc, campaignId, approvalId } = await drafted();
+    svc.decide("w", approvalId, "rejected", "h", "round 1");
+    const second = svc.requestApproval("w", campaignId);
+    svc.decide("w", second.approvalId, "rejected", "h", "round 2");
+    const third = svc.requestApproval("w", campaignId);
+    expect(svc.get("w", campaignId).approval).toMatchObject({ id: third.approvalId, status: "pending" });
+    expect(svc.listApprovals("w", "rejected").map((a) => (a.payload as { note: string }).note).sort()).toEqual(["round 1", "round 2"]);
+  });
+
+  it("refuses to ask again while a request is open, for approved campaigns, or for other workspaces", async () => {
+    const { svc, campaignId, approvalId, assets } = await drafted();
+    expect(() => svc.requestApproval("w", campaignId)).toThrow(/already waiting/);
+    expect(() => svc.requestApproval("other", campaignId)).toThrow(/not found/);
+
+    for (const a of assets) svc.reviewAsset("w", campaignId, a.id, "approved");
+    svc.decide("w", approvalId, "approved", "h");
+    expect(() => svc.requestApproval("w", campaignId)).toThrow(/Only drafts/);
+  });
+
+  it("cannot send a campaign with no copy for approval", async () => {
+    const { svc, campaignId, approvalId } = await drafted();
+    svc.decide("w", approvalId, "rejected", "h");
+    db.delete(schema.campaignAssets).where(eq(schema.campaignAssets.campaignId, campaignId)).run();
+    expect(() => svc.requestApproval("w", campaignId)).toThrow(/no copy/);
+  });
+});
+
 describe("campaign performance", () => {
   const metric = (campaignId: string, date: string, over: Record<string, number> = {}) => ({
     workspaceId: "w", campaignId, channel: "meta_ads", date, impressions: 1000, clicks: 100, spend: 50, conversions: 5, revenue: 200, ingestedAt: "x", ...over,

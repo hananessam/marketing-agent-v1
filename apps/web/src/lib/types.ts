@@ -10,9 +10,11 @@ export type CampaignDetail = Campaign & {
   };
   assets: Asset[];
   experiments: { id: string; hypothesis: string; variable: string }[];
+  /** The newest approval request for this campaign, if any. */
+  approval: { id: string; status: "pending" | "approved" | "rejected"; decidedBy: string | null; decidedAt: string | null; note: string | null; createdAt: string } | null;
 };
 
-export type Approval = { id: string; action: string; summary: string; status: "pending" | "approved" | "rejected"; payload: { campaignId: string }; decidedBy: string | null; createdAt: string };
+export type Approval = { id: string; action: string; summary: string; status: "pending" | "approved" | "rejected"; payload: { campaignId: string; note?: string }; decidedBy: string | null; createdAt: string };
 
 export type GenerateResult = { runId: string; status: string; reused: boolean; output: { campaignId?: string; needsFixes?: string[]; planErrors?: string[]; contentErrors?: string[]; error?: string } };
 

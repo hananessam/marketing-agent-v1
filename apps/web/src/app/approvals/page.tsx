@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { api, errorDetails } from "@/lib/api";
 import type { Approval } from "@/lib/types";
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass, statusTone } from "@/components/ui";
@@ -23,9 +23,10 @@ export default function ApprovalsPage() {
   const updateReviewer = writeReviewer;
 
   const q = useQuery({ queryKey: ["approvals", "all"], queryFn: () => api<Approval[]>("/approvals") });
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const decide = useMutation({
     mutationFn: (v: { id: string; decision: "approved" | "rejected" }) =>
-      api(`/approvals/${v.id}/decision`, { method: "POST", body: { decision: v.decision, decidedBy: reviewer.trim() } }),
+      api(`/approvals/${v.id}/decision`, { method: "POST", body: { decision: v.decision, decidedBy: reviewer.trim(), ...(notes[v.id]?.trim() ? { note: notes[v.id].trim() } : {}) } }),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["approvals"] });
       qc.invalidateQueries({ queryKey: ["campaign"] });
@@ -58,6 +59,9 @@ export default function ApprovalsPage() {
                 <li key={a.id} className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
                   <div className="flex items-center gap-2"><Badge tone="warn">{a.action}</Badge><span className="text-xs text-zinc-500">{new Date(a.createdAt).toLocaleString()}</span></div>
                   <p className="mt-2 text-sm">{a.summary}</p>
+                  <label className="mt-3 block text-sm"><span className="mb-1 block text-xs font-medium text-zinc-500">Note for the team (optional; useful when rejecting, so they know what to change)</span>
+                    <textarea rows={2} maxLength={500} className={inputClass} value={notes[a.id] ?? ""} onChange={(e) => setNotes((n) => ({ ...n, [a.id]: e.target.value }))} placeholder="e.g. The headline sounds too pushy" />
+                  </label>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Link href={`/campaigns/${a.payload.campaignId}`} className="text-sm underline">Review assets</Link>
                     <span className="grow" />
@@ -73,8 +77,8 @@ export default function ApprovalsPage() {
             <Card title="History">
               <ul className="divide-y divide-zinc-100 text-sm dark:divide-zinc-800">
                 {decided.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between gap-3 py-2">
-                    <span>{a.summary}</span>
+                  <li key={a.id} className="flex items-start justify-between gap-3 py-2">
+                    <span>{a.summary}{a.payload.note && <span className="mt-0.5 block text-xs text-zinc-500">Note: {a.payload.note}</span>}</span>
                     <span className="flex shrink-0 items-center gap-2"><Badge tone={statusTone(a.status)}>{a.status}</Badge><span className="text-xs text-zinc-500">{a.decidedBy}</span></span>
                   </li>
                 ))}

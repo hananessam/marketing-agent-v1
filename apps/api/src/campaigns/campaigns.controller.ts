@@ -40,6 +40,12 @@ export class CampaignsController {
     return this.campaigns.reviewAsset(ws, id, assetId, body.decision);
   }
 
+  /** After a rejection: ask again once the copy has been edited. */
+  @Post("campaigns/:id/request-approval")
+  requestApproval(@WorkspaceId() ws: string, @Param("id") id: string) {
+    return this.campaigns.requestApproval(ws, id);
+  }
+
   @Get("approvals")
   approvals(@WorkspaceId() ws: string, @Query("status") status?: "pending" | "approved" | "rejected") {
     return this.campaigns.listApprovals(ws, status);
@@ -47,6 +53,6 @@ export class CampaignsController {
 
   @Post("approvals/:id/decision")
   decide(@WorkspaceId() ws: string, @Param("id") id: string, @Body(new ZodValidationPipe(DecisionBody)) body: z.infer<typeof DecisionBody>) {
-    return this.campaigns.decide(ws, id, body.decision, body.decidedBy);
+    return this.campaigns.decide(ws, id, body.decision, body.decidedBy, body.note);
   }
 }
