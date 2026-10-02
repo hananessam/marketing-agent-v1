@@ -7,6 +7,7 @@ import { useState } from "react";
 import { ApiError, api, errorDetails } from "@/lib/api";
 import { friendlyIssue, label } from "@/lib/format";
 import type { Asset, CampaignDetail } from "@/lib/types";
+import { usePropose, ProposeOutcome } from "@/components/action-buttons";
 import { CampaignPerformanceView } from "@/components/campaign-performance";
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, inputClass, statusTone } from "@/components/ui";
 
@@ -66,6 +67,8 @@ export default function CampaignPage() {
       {approval?.status === "approved" && <p className="text-sm text-zinc-500">Approved{approval.decidedBy ? ` by ${approval.decidedBy}` : ""}. The copy is now locked.</p>}
       {approval?.status === "rejected" && <RejectedBanner campaignId={id} approval={approval} />}
 
+      {c.status === "approved" && <LaunchCard campaignId={id} hasEmail={c.assets.some((a) => a.status === "approved" && a.variant.startsWith("email:"))} />}
+
       {c.plan && (
       <Card title="Plan">
         <p className="text-sm"><span className="font-medium">Positioning:</span> {c.plan.positioning}</p>
@@ -104,6 +107,39 @@ export default function CampaignPage() {
         </Card>
       ))}
     </div>
+  );
+}
+
+function LaunchCard({ campaignId, hasEmail }: { campaignId: string; hasEmail: boolean }) {
+  const publish = usePropose();
+  const schedule = usePropose();
+  const [when, setWhen] = useState("");
+  return (
+    <Card title="Launch">
+      <p className="text-sm text-zinc-500">
+        This campaign is approved. The app can&apos;t post to ad accounts or send email yet, so launching is recorded in <span className="font-medium">shadow mode</span>:
+        you approve it, and the app records exactly what would have been published, with the copy ready to paste.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button onClick={() => publish.mutate({ type: "publish_campaign", source: "campaign", sourceRef: campaignId, payload: { campaignId } })} disabled={publish.isPending}>Prepare launch package</Button>
+      </div>
+      {publish.error && <div className="mt-2"><ErrorBox error={publish.error.message} /></div>}
+      {publish.data && <div className="mt-2"><ProposeOutcome result={publish.data} /></div>}
+
+      {hasEmail && (
+        <div className="mt-5 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+          <p className="text-sm font-medium">Schedule the email</p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="text-sm"><span className="mb-1 block text-xs font-medium text-zinc-500">Send at (your time)</span>
+              <input type="datetime-local" className={inputClass} value={when} onChange={(e) => setWhen(e.target.value)} /></label>
+            <Button variant="secondary" disabled={!when || schedule.isPending}
+              onClick={() => schedule.mutate({ type: "schedule_email", source: "campaign", sourceRef: `${campaignId}:${when}`, payload: { campaignId, sendAt: new Date(when).toISOString() } })}>Send for approval</Button>
+          </div>
+          {schedule.error && <div className="mt-2"><ErrorBox error={schedule.error.message} /></div>}
+          {schedule.data && <div className="mt-2"><ProposeOutcome result={schedule.data} /></div>}
+        </div>
+      )}
+    </Card>
   );
 }
 

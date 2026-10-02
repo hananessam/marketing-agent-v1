@@ -136,7 +136,7 @@ function Report({ run, now, attention, campaigns }: { run: AnalyticsRun; now: nu
           </Card>
 
           <Card title="What to do next">
-            <NextSteps recs={report.recommendations} names={names} />
+            <NextSteps recs={report.recommendations} names={names} runId={run.id} />
           </Card>
         </>
       )}

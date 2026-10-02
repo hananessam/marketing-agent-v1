@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ACTION_LABEL, ANOMALY_LABEL, DATA_ISSUE_LABEL, METRIC_LABEL, dateRange, formatChange, formatMetric, humanize } from "@/lib/format";
 import type { AnalyticsOutput, Metric, Recommendation } from "@/lib/types";
+import { ActionButtons } from "@/components/action-buttons";
 import { Badge, Button, Card } from "@/components/ui";
 
 type Facts = AnalyticsOutput["facts"];
@@ -80,7 +81,7 @@ export function Attention({ items }: { items: AttentionItem[] }) {
 
 // ---------------------------------------------------------------- next steps
 
-export function NextSteps({ recs, names }: { recs: Recommendation[]; names: Map<string, string> }) {
+export function NextSteps({ recs, names, runId }: { recs: Recommendation[]; names: Map<string, string>; runId: string }) {
   if (recs.length === 0) return <p className="text-sm text-zinc-500">Nothing to do right now.</p>;
   return (
     <ol className="space-y-3">
@@ -113,6 +114,8 @@ export function NextSteps({ recs, names }: { recs: Recommendation[]; names: Map<
                   </tbody>
                 </table>
               </details>
+              <ActionButtons rec={r} runId={runId} index={i}
+                text={{ title: humanize(r.title, names), action: humanize(r.action, names), rationale: humanize(r.rationale, names), outcome: humanize(r.measurableOutcome, names) }} />
             </div>
           </div>
         </li>

@@ -24,7 +24,7 @@ export function errorDetails(e: unknown): string[] {
   if (!Array.isArray(list)) return [];
   return list.map((v) => (typeof v === "string" ? v : v && typeof v === "object" && "detail" in v
     ? `${(v as { where?: string }).where ?? ""} ${(v as { detail: string }).detail}`.trim()
-    : JSON.stringify(v)));
+    : v && typeof v === "object" && "message" in v ? String((v as { message: unknown }).message) : JSON.stringify(v)));
 }
 
 export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {

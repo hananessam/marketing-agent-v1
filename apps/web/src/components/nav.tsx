@@ -10,6 +10,8 @@ const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/campaigns", label: "Campaigns" },
   { href: "/approvals", label: "Approvals" },
+  { href: "/tasks", label: "Tasks" },
+  { href: "/activity", label: "Activity" },
   { href: "/connections", label: "Connections" },
   { href: "/schedules", label: "Schedules" },
   { href: "/audit", label: "Audit log" },

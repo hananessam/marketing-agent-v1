@@ -123,3 +123,17 @@ export function friendlyIssue(issue: string): string {
   const shorten = /shorten by at least (\d+)/.exec(detail);
   return `This copy ${text}${shorten ? ` Cut at least ${shorten[1]}.` : ""}`;
 }
+
+export const ACTION_TYPE_LABEL: Record<string, string> = {
+  create_task: "Add a task", pause_campaign: "Pause a campaign", change_budget: "Change a budget",
+  schedule_email: "Schedule an email", publish_campaign: "Publish a campaign",
+};
+
+export const ACTION_STATUS: Record<string, { label: string; tone: "good" | "warn" | "bad" | "info" | "neutral" }> = {
+  awaiting_approval: { label: "Waiting for approval", tone: "warn" },
+  executing: { label: "Running", tone: "info" },
+  executed: { label: "Done", tone: "good" },
+  shadowed: { label: "Recorded, not applied", tone: "info" },
+  rejected: { label: "Rejected", tone: "neutral" },
+  failed: { label: "Failed", tone: "bad" },
+};

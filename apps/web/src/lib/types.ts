@@ -65,3 +65,14 @@ export type CampaignPerformance = {
   daily: { date: string; impressions: number; clicks: number; spend: number; conversions: number; revenue: number }[];
   totals: PeriodTotals | null; previousTotals: PeriodTotals | null;
 };
+
+export type ActionKind = "create_task" | "pause_campaign" | "change_budget" | "schedule_email" | "publish_campaign";
+export type ActionStatus = "awaiting_approval" | "executing" | "executed" | "shadowed" | "rejected" | "failed";
+export type AgentAction = {
+  id: string; type: ActionKind; status: ActionStatus; payload: Record<string, unknown>;
+  preview: { summary: string; details: Record<string, unknown> }; result: Record<string, unknown> | null;
+  source: "recommendation" | "campaign" | "manual"; sourceRef: string | null; approvalId: string | null;
+  requestedBy: string; createdAt: string; executedAt: string | null;
+};
+export type ProposeResult = { action: AgentAction; reused: boolean };
+export type Task = { id: string; title: string; description: string; campaignId: string | null; status: "open" | "done"; actionId: string | null; createdAt: string; doneAt: string | null };

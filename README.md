@@ -75,6 +75,7 @@ Put these in `apps/api/.env.local` (git-ignored). **Never commit them or paste t
 | `META_APP_ID`, `META_APP_SECRET` | "Connect Meta Ads" |
 | `API_PUBLIC_URL` | Optional, default `http://localhost:4000`; used to build OAuth redirect URIs |
 | `WEB_ORIGIN` | Optional, default `http://localhost:3000`; where users return after signing in |
+| `EXECUTION_MODE` | Optional, default `shadow`. See [Actions and shadow mode](#actions-and-shadow-mode); `live` does nothing extra until live executors exist |
 | `SYNC_CRON`, `SYNC_TIMEZONE` | Optional daily connector sync time, default `0 5 * * *` in `UTC`. At most hourly; invalid values fall back to the default |
 
 ---
@@ -176,9 +177,32 @@ When you deploy, set `API_PUBLIC_URL` to your HTTPS URL and update the redirect 
 
 ---
 
+## Actions and shadow mode
+
+The agent can propose things to *do*, not just things to read. Everything goes through one gate, the **Approvals** inbox, and every action is kept on the **Activity** page.
+
+| Action | Where it comes from | Approval | What happens today |
+|---|---|---|---|
+| Add a task | "Add to my tasks" on any recommendation | none (internal, harmless) | Runs immediately; appears on **Tasks** |
+| Pause a campaign | "Propose pausing" on a recommendation | required | **Shadow**: recorded, not applied |
+| Change a budget (max 10% at a time) | "Propose a budget change" | required | **Shadow** |
+| Publish a campaign | "Prepare launch package" on an approved campaign | required | **Shadow**: the approved copy is laid out per channel, ready to paste |
+| Schedule an email | Launch card on an approved campaign with email copy | required | **Shadow** |
+
+**Shadow mode** is the first stage of the staged rollout in the original plan (read-only, then shadow, then approval, then limited autonomy). Your Meta and Google connections are read-only and there is no email provider, so approving an external action records *exactly what would have happened* and changes nothing outside this app. The inbox says so before you decide, and Activity labels these "Recorded, not applied". `EXECUTION_MODE=live` does nothing extra yet: a real action type needs a live executor (one function in `apps/api/src/actions/actions.service.ts`) plus write permission on the platform, such as Meta `ads_management`. Until then it falls back to shadow and says why.
+
+How it stays safe:
+- Details are validated (typed, bounded) and a **preview of what would happen** is written when the action is proposed, so you approve something concrete.
+- The action is **re-checked against current data when it runs**. If the campaign changed after you approved (for example it was paused meanwhile), the action fails instead of running.
+- Each action is **claimed before it runs**, so approving twice, or two people approving at once, can never execute it twice. Identical proposals are not duplicated.
+- Budget changes above 10%, pausing or re-budgeting a Google Analytics report, publishing an unapproved campaign, or scheduling in the past are refused.
+- A rejected or failed action can be proposed again.
+
+---
+
 ## Safety model
 
-- Drafts and reports run automatically; sending, publishing, budget changes and pausing need human approval; deleting is never automatic.
+- Drafts, reports and internal tasks run automatically; sending, publishing, budget changes and pausing need human approval and, for now, are only recorded (shadow mode); deleting is never automatic.
 - The model never computes numbers: metrics, comparisons and anomaly detection are deterministic code, and the model's cited values are validated against them.
 - All data access goes through audited, workspace-scoped read tools.
 - OAuth uses a single-use, expiring `state` (plus PKCE for Google); the workspace is recovered from that state, never from the callback URL.
