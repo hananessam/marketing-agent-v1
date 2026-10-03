@@ -26,11 +26,7 @@ npm run build:shared
 cp -n .env.example apps/api/.env.local
 ```
 
-**4. Put your OpenAI key in it** (replace `sk-YOUR-KEY` with your key, or open `apps/api/.env.local` and set `OPENAI_API_KEY=` yourself)
-
-```bash
-perl -pi -e 's/^OPENAI_API_KEY=.*/OPENAI_API_KEY=sk-YOUR-KEY/' apps/api/.env.local
-```
+**4. Put your OpenAI key in the settings file**: open `apps/api/.env.local` and set the line `OPENAI_API_KEY=` to your key, for example `OPENAI_API_KEY=sk-...`
 
 **5. Create the database**
 
