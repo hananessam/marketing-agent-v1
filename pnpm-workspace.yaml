@@ -7,3 +7,4 @@ allowBuilds:
   sharp: false
   unrs-resolver: false
   msgpackr-extract: false
+linkWorkspacePackages: true

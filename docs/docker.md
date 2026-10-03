@@ -22,4 +22,4 @@ docker compose down               # stop (data kept)
 docker compose down -v            # stop and DELETE all data (database, Redis)
 ```
 
-After you change `apps/api/src/db/schema.ts`, generate a migration so the Docker database gets it: `pnpm --filter api db:generate`, then commit the new file in `apps/api/drizzle/`. (`pnpm db:push` is only for the local dev database.)
+After you change `apps/api/src/db/schema.ts`, generate a migration so the Docker database gets it: `npm run db:generate -w api`, then commit the new file in `apps/api/drizzle/`. (`npm run db:push` is only for the local dev database.)

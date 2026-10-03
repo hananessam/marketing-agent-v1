@@ -20,7 +20,7 @@ importers:
         specifier: ^1.6.0
         version: 1.6.0(@langchain/core@1.2.13(openai@7.25.0(zod@4.6.5)))
       '@marketing/shared':
-        specifier: workspace:*
+        specifier: '*'
         version: link:../../packages/shared
       '@nestjs/common':
         specifier: ^11
@@ -84,7 +84,7 @@ importers:
   apps/web:
     dependencies:
       '@marketing/shared':
-        specifier: workspace:*
+        specifier: '*'
         version: link:../../packages/shared
       '@tanstack/react-query':
         specifier: ^5.104.0

@@ -6,18 +6,18 @@ An AI-assisted marketing workflow: it analyzes campaign performance, recommends 
 
 ## Run it
 
-You need [Node.js](https://nodejs.org) 20 or newer, [pnpm](https://pnpm.io/installation) (`corepack enable` is the easy way to get it) and an [OpenAI API key](https://platform.openai.com/api-keys). Run each command from the project folder, one after the other.
+You need [Node.js](https://nodejs.org) 20 or newer (it includes npm) and an [OpenAI API key](https://platform.openai.com/api-keys). Run each command from the project folder, one after the other.
 
 **1. Install the packages**
 
 ```bash
-pnpm install
+npm install
 ```
 
 **2. Build the shared code**
 
 ```bash
-pnpm build:shared
+npm run build:shared
 ```
 
 **3. Create the settings file**
@@ -35,25 +35,25 @@ perl -pi -e 's/^OPENAI_API_KEY=.*/OPENAI_API_KEY=sk-YOUR-KEY/' apps/api/.env.loc
 **5. Create the database**
 
 ```bash
-pnpm db:push
+npm run db:push
 ```
 
 **6. Load the demo data**
 
 ```bash
-pnpm seed
+npm run seed
 ```
 
 **7. Start the API** (leave this terminal open)
 
 ```bash
-pnpm dev:api
+npm run dev:api
 ```
 
 **8. Start the web app** (in a second terminal, from the project folder)
 
 ```bash
-pnpm dev:web
+npm run dev:web
 ```
 
 **9. Open the app**
@@ -114,4 +114,4 @@ apps/api          NestJS API, LangGraph workflows (OpenAI), SQLite
 packages/shared   Zod schemas, metrics math, approval policy
 ```
 
-Other commands: `pnpm test`, `pnpm typecheck`. After changing `packages/shared`, run `pnpm build:shared`.
+Other commands: `npm test`, `npm run typecheck`. After changing `packages/shared`, run `npm run build:shared`.

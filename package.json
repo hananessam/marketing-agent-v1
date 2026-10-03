@@ -1,14 +1,18 @@
 {
   "name": "marketing-agent",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev:web": "pnpm --filter web dev",
-    "dev:api": "pnpm --filter api dev",
-    "build:shared": "pnpm --filter @marketing/shared build",
-    "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
-    "db:push": "pnpm --filter api db:push",
-    "seed": "pnpm --filter api seed"
+    "dev:web": "npm run dev -w web",
+    "dev:api": "npm run dev -w api",
+    "build:shared": "npm run build -w @marketing/shared",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:push": "npm run db:push -w api",
+    "seed": "npm run seed -w api"
   },
   "packageManager": "pnpm@11.1.3"
 }
