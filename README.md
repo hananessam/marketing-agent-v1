@@ -60,6 +60,36 @@ http://localhost:3000
 
 Without the OpenAI key the app still opens and shows the demo data, but the parts that need the AI (checking your numbers, writing drafts) will tell you the key is missing.
 
+## Run it with Docker instead
+
+Needs [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine with Compose v2). You don't need Node.js for this route, so skip the steps above.
+
+**1. Create the settings file**
+
+```bash
+cp -n .env.example apps/api/.env.local
+```
+
+**2. Put your OpenAI key in the settings file**: open `apps/api/.env.local` and set the line `OPENAI_API_KEY=` to your key.
+
+**3. Build and start everything**
+
+```bash
+docker compose up --build
+```
+
+**4. Open the app**
+
+```
+http://localhost:3000
+```
+
+**To stop it** (your data is kept)
+
+```bash
+docker compose down
+```
+
 ## Tools
 
 The assistant works only through these typed tools.
@@ -93,7 +123,7 @@ The assistant works only through these typed tools.
 - [Post real ads to Meta](docs/live-posting.md)
 - [All settings and environment variables](docs/configuration.md): Redis schedules, Slack summaries, budget limits and more.
 - [Modes, actions and approvals](docs/modes-and-actions.md)
-- [Run everything with Docker](docs/docker.md)
+- [More Docker details](docs/docker.md): blank start, logs, deleting the data, and what the containers do.
 
 ## Safety
 
