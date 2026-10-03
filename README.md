@@ -6,18 +6,61 @@ An AI-assisted marketing workflow: it analyzes campaign performance, recommends 
 
 ## Run it
 
-You need [Node.js](https://nodejs.org) 20 or newer, [pnpm](https://pnpm.io/installation) (`corepack enable` is the easy way to get it) and an [OpenAI API key](https://platform.openai.com/api-keys). From the project folder:
+You need [Node.js](https://nodejs.org) 20 or newer, [pnpm](https://pnpm.io/installation) (`corepack enable` is the easy way to get it) and an [OpenAI API key](https://platform.openai.com/api-keys). Run each command from the project folder, one after the other.
+
+**1. Install the packages**
 
 ```bash
 pnpm install
-pnpm build:shared
-cp -n .env.example apps/api/.env.local   # open this file and set OPENAI_API_KEY=sk-...
-pnpm db:push && pnpm seed                # creates the database and loads demo data
-pnpm dev:api                             # terminal 1 -> http://localhost:4000
-pnpm dev:web                             # terminal 2 -> http://localhost:3000
 ```
 
-Open **http://localhost:3000**.
+**2. Build the shared code**
+
+```bash
+pnpm build:shared
+```
+
+**3. Create the settings file**
+
+```bash
+cp -n .env.example apps/api/.env.local
+```
+
+**4. Put your OpenAI key in it** (replace `sk-YOUR-KEY` with your key, or open `apps/api/.env.local` and set `OPENAI_API_KEY=` yourself)
+
+```bash
+perl -pi -e 's/^OPENAI_API_KEY=.*/OPENAI_API_KEY=sk-YOUR-KEY/' apps/api/.env.local
+```
+
+**5. Create the database**
+
+```bash
+pnpm db:push
+```
+
+**6. Load the demo data**
+
+```bash
+pnpm seed
+```
+
+**7. Start the API** (leave this terminal open)
+
+```bash
+pnpm dev:api
+```
+
+**8. Start the web app** (in a second terminal, from the project folder)
+
+```bash
+pnpm dev:web
+```
+
+**9. Open the app**
+
+```
+http://localhost:3000
+```
 
 Without the OpenAI key the app still opens and shows the demo data, but the parts that need the AI (checking your numbers, writing drafts) will tell you the key is missing.
 
